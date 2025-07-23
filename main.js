@@ -487,6 +487,16 @@ function renderCell(cellIndex) {
     // Add content - always as img node
     const img = document.createElement('img');
     img.src = cellData.content.src;
+    img.style.objectFit = cellData.objectFit || 'contain'; // Default to contain
+    img.style.cursor = 'pointer';
+    img.title = `Click to cycle fill mode. Current: ${cellData.objectFit || 'contain'}`;
+    
+    // Add click handler to cycle through object-fit modes
+    img.addEventListener('click', (e) => {
+        e.stopPropagation(); // Prevent cell selection
+        cycleFillMode(cellIndex);
+    });
+    
     cellElement.appendChild(img);
     
     // Add remove button
@@ -502,6 +512,26 @@ function removeCellContent(cellIndex) {
     layoutState.cells[cellIndex] = null;
     renderCell(cellIndex);
     console.log(`Removed content from cell ${cellIndex}`);
+}
+
+function cycleFillMode(cellIndex) {
+    const cellData = layoutState.cells[cellIndex];
+    if (!cellData) return;
+    
+    // CSS object-fit values to cycle through
+    const fillModes = ['contain', 'cover', 'fill', 'scale-down', 'none'];
+    const currentMode = cellData.objectFit || 'contain';
+    const currentIndex = fillModes.indexOf(currentMode);
+    const nextIndex = (currentIndex + 1) % fillModes.length;
+    const nextMode = fillModes[nextIndex];
+    
+    // Update state
+    cellData.objectFit = nextMode;
+    
+    // Re-render cell to apply new fill mode
+    renderCell(cellIndex);
+    
+    console.log(`Cell ${cellIndex} fill mode changed from ${currentMode} to ${nextMode}`);
 }
 
 function updateSheetSize() {
