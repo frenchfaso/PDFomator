@@ -151,14 +151,16 @@ function setupEventListeners() {
     
     // File type selector handlers
     elements.selectPdfBtn.addEventListener('click', () => {
+        console.log('PDF button clicked, currentTargetCell:', currentTargetCell);
         hideFileTypeSelector();
         elements.pdfInput.click();
     });
     elements.selectImageBtn.addEventListener('click', () => {
+        console.log('Image button clicked, currentTargetCell:', currentTargetCell);
         hideFileTypeSelector();
         elements.imageInput.click();
     });
-    elements.cancelFileType.addEventListener('click', hideFileTypeSelector);
+    elements.cancelFileType.addEventListener('click', cancelFileTypeSelector);
     
     // Cancel button handlers
     elements.cancelGrid.addEventListener('click', hideGridPicker);
@@ -170,7 +172,7 @@ function setupEventListeners() {
     // Setup overlay background click handlers
     overlayManager.setupClickOutside(elements.gridOverlay, hideGridPicker);
     overlayManager.setupClickOutside(elements.sizeOverlay, hideSizePicker);
-    overlayManager.setupClickOutside(elements.fileTypeSelector, hideFileTypeSelector);
+    overlayManager.setupClickOutside(elements.fileTypeSelector, cancelFileTypeSelector);
     overlayManager.setupClickOutside(elements.pageSelector, hidePageSelector);
     
     // Setup grid matrix
@@ -181,10 +183,6 @@ function setupEventListeners() {
     
     // Keyboard shortcuts
     document.addEventListener('keydown', handleKeyboard);
-    
-    // Prevent default drag behaviors
-    document.addEventListener('dragover', e => e.preventDefault());
-    document.addEventListener('drop', handleDrop);
 }
 
 function handleKeyboard(e) {
@@ -192,7 +190,7 @@ function handleKeyboard(e) {
     if (e.key === 'Escape') {
         hideGridPicker();
         hideSizePicker();
-        hideFileTypeSelector();
+        cancelFileTypeSelector();
         hidePageSelector();
         hideLoading();
     }
@@ -209,7 +207,9 @@ function handleSizePicker() {
 }
 
 function handleCellAdd(cellIndex) {
+    console.log('handleCellAdd called with cellIndex:', cellIndex);
     currentTargetCell = cellIndex;
+    console.log('currentTargetCell set to:', currentTargetCell);
     showFileTypeSelector();
 }
 
@@ -255,14 +255,30 @@ async function handlePDFSelection(e) {
 }
 
 async function handleImageSelection(e) {
+    console.log('handleImageSelection called', {
+        filesCount: e.target.files.length,
+        currentTargetCell,
+        files: Array.from(e.target.files)
+    });
+    
     const files = Array.from(e.target.files);
-    if (files.length === 0 || currentTargetCell === null) return;
+    if (files.length === 0) {
+        console.log('No files selected');
+        return;
+    }
+    
+    if (currentTargetCell === null) {
+        console.log('No target cell set');
+        return;
+    }
     
     const file = files[0]; // Single file selection
+    console.log('Processing file:', file.name, file.type);
     showLoading('Processing image...');
     
     try {
         await processImageFileForCell(file, currentTargetCell);
+        console.log('Image processing completed successfully');
     } catch (error) {
         console.error('Image processing failed:', error);
         alert('Failed to process image. Please try again.');
@@ -271,64 +287,6 @@ async function handleImageSelection(e) {
         elements.imageInput.value = '';
         currentTargetCell = null;
     }
-}
-
-async function handleDrop(e) {
-    e.preventDefault();
-    
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length === 0) return;
-    
-    // For drop, we'll add to the next available cells sequentially
-    showLoading('Processing dropped files...');
-    
-    try {
-        for (const file of files) {
-            if (file.type === 'application/pdf') {
-                await processPDFFile(file);
-            } else if (file.type.startsWith('image/')) {
-                await processImageFile(file);
-            }
-        }
-    } catch (error) {
-        console.error('File processing failed:', error);
-        alert('Failed to process some files. Please try again.');
-    } finally {
-        hideLoading();
-    }
-}
-
-async function processPDFFile(file) {
-    if (typeof pdfjsLib === 'undefined') {
-        throw new Error('PDF.js not available');
-    }
-    
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
-    
-    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-        const page = await pdf.getPage(pageNum);
-        const canvas = await renderPDFPageToCanvas(page, 2);
-        addToNextCell(canvas, `PDF p${pageNum}`);
-    }
-}
-
-async function processImageFile(file) {
-    return new Promise((resolve, reject) => {
-        const img = new Image();
-        const objectUrl = URL.createObjectURL(file);
-        
-        img.onload = () => {
-            addToNextCell(img, file.name);
-            URL.revokeObjectURL(objectUrl); // Clean up memory
-            resolve();
-        };
-        img.onerror = () => {
-            URL.revokeObjectURL(objectUrl); // Clean up memory on error too
-            reject();
-        };
-        img.src = objectUrl;
-    });
 }
 
 async function processPDFFileForCell(file, cellIndex) {
@@ -351,22 +309,43 @@ async function processPDFFileForCell(file, cellIndex) {
 }
 
 async function processImageFileForCell(file, cellIndex) {
+    console.log('processImageFileForCell called:', {
+        fileName: file.name,
+        fileType: file.type,
+        fileSize: file.size,
+        cellIndex
+    });
+    
     return new Promise((resolve, reject) => {
         const img = new Image();
         const objectUrl = URL.createObjectURL(file);
         
+        console.log('Created object URL:', objectUrl);
+        
         img.onload = () => {
-            // Convert image to bitmap (JPEG quality 90)
-            const bitmap = convertImageToBitmap(img, 0.9);
-            addToSpecificCell(bitmap, file.name, cellIndex);
-            URL.revokeObjectURL(objectUrl); // Clean up memory
+            console.log('Image loaded successfully:', {
+                naturalWidth: img.naturalWidth,
+                naturalHeight: img.naturalHeight
+            });
+            
+            // Use the image directly instead of converting to bitmap
+            // This preserves the original quality and format
+            addToSpecificCell(img, file.name, cellIndex);
+            console.log('Added to cell:', cellIndex);
+            
+            // Don't revoke the URL immediately since the img element needs it
+            // The browser will clean it up when the img is garbage collected
             resolve();
         };
-        img.onerror = () => {
-            URL.revokeObjectURL(objectUrl); // Clean up memory on error too
-            reject();
+        
+        img.onerror = (error) => {
+            console.error('Image loading failed:', error);
+            URL.revokeObjectURL(objectUrl); // Clean up memory on error
+            reject(new Error('Failed to load image'));
         };
+        
         img.src = objectUrl;
+        console.log('Set image src to object URL');
     });
 }
 
@@ -462,26 +441,6 @@ async function showPDFPageSelector(pdf, fileName, cellIndex) {
     showPageSelector();
 }
 
-function addToNextCell(content, title = '') {
-    const totalCells = layoutState.grid.rows * layoutState.grid.cols;
-    
-    // Find next empty cell
-    let cellIndex = -1;
-    for (let i = 0; i < totalCells; i++) {
-        if (!layoutState.cells[i]) {
-            cellIndex = i;
-            break;
-        }
-    }
-    
-    if (cellIndex === -1) {
-        alert('All cells are filled! Increase grid size or export current layout.');
-        return;
-    }
-    
-    addToSpecificCell(content, title, cellIndex);
-}
-
 function addToSpecificCell(content, title = '', cellIndex) {
     // Store in state
     layoutState.cells[cellIndex] = { content, title };
@@ -494,7 +453,10 @@ function addToSpecificCell(content, title = '', cellIndex) {
 
 function renderCell(cellIndex) {
     const cellElement = elements.sheet.children[cellIndex];
-    if (!cellElement) return;
+    if (!cellElement) {
+        console.log('Cell element not found for index:', cellIndex);
+        return;
+    }
     
     const cellData = layoutState.cells[cellIndex];
     if (!cellData) {
@@ -506,9 +468,13 @@ function renderCell(cellIndex) {
         addBtn.className = 'add-btn';
         addBtn.textContent = '+';
         addBtn.title = 'Add content to this cell';
-        addBtn.addEventListener('click', () => handleCellAdd(cellIndex));
+        addBtn.addEventListener('click', () => {
+            console.log('Add button clicked for cell:', cellIndex);
+            handleCellAdd(cellIndex);
+        });
         cellElement.appendChild(addBtn);
         
+        console.log(`Rendered empty cell ${cellIndex} with add button`);
         return;
     }
     
@@ -516,11 +482,15 @@ function renderCell(cellIndex) {
     cellElement.innerHTML = '';
     cellElement.classList.add('filled');
     
+    console.log(`Rendering filled cell ${cellIndex} with content:`, cellData.title);
+    
     // Add content
     if (cellData.content instanceof HTMLCanvasElement) {
-        cellElement.appendChild(cellData.content.cloneNode());
+        const canvas = cellData.content.cloneNode();
+        cellElement.appendChild(canvas);
     } else if (cellData.content instanceof Image) {
-        const img = cellData.content.cloneNode();
+        const img = document.createElement('img');
+        img.src = cellData.content.src;
         cellElement.appendChild(img);
     }
     
@@ -703,6 +673,10 @@ function showFileTypeSelector() {
 }
 
 function hideFileTypeSelector() {
+    overlayManager.hide(elements.fileTypeSelector);
+}
+
+function cancelFileTypeSelector() {
     overlayManager.hide(elements.fileTypeSelector, () => {
         currentTargetCell = null;
     });
@@ -773,7 +747,6 @@ window.PDFomator = {
 };
 
 // TODO: Future enhancements
-// - Drag and drop reordering of cells
 // - Vector export via pdf-lib instead of raster
 // - Pinch-to-zoom on mobile devices  
 // - Dark mode theme toggle
