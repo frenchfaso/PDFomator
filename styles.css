@@ -145,6 +145,8 @@ body {
     max-height: 100%;
     object-fit: contain;
     border-radius: 2px;
+    /* Allow canvas elements to override these constraints via inline styles */
+    display: block;
 }
 
 .sheet-cell .add-btn {
@@ -185,12 +187,15 @@ body {
     height: 24px;
     cursor: pointer;
     font-size: 12px;
-    display: none;
+    display: flex;
     z-index: 2;
-}
-
-.sheet-cell:hover .remove-btn {
-    display: block;
+    /* Ensure perfect circle and centering */
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    padding: 0;
+    min-width: 24px;
+    min-height: 24px;
 }
 
 /* Floating Action Buttons */
