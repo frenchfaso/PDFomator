@@ -1,0 +1,63 @@
+{
+  "name": "PDFomator",
+  "short_name": "PDFomator",
+  "description": "Minimal Mobile PWA to Pack PDF Pages on a Sheet",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#007acc",
+  "orientation": "any",
+  "categories": ["productivity", "utilities"],
+  "lang": "en",
+  "dir": "ltr",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23007acc'/%3E%3Ctext x='50' y='55' text-anchor='middle' fill='white' font-family='Arial' font-size='40' font-weight='bold'%3EPDF%3C/text%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23007acc'/%3E%3Ctext x='50' y='55' text-anchor='middle' fill='white' font-family='Arial' font-size='40' font-weight='bold'%3EPDF%3C/text%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 540 720'%3E%3Crect width='540' height='720' fill='%23f8f9fa'/%3E%3Crect x='20' y='80' width='500' height='40' fill='%23007acc'/%3E%3Ctext x='270' y='105' text-anchor='middle' fill='white' font-family='Arial' font-size='18' font-weight='bold'%3EPDFomator%3C/text%3E%3Crect x='70' y='180' width='400' height='280' fill='white' stroke='%23ddd' stroke-width='2'/%3E%3Crect x='90' y='200' width='360' height='120' fill='%23f0f8ff' stroke='%23007acc' stroke-width='2' stroke-dasharray='5,5'/%3E%3Crect x='90' y='340' width='360' height='120' fill='%23f0f8ff' stroke='%23007acc' stroke-width='2' stroke-dasharray='5,5'/%3E%3Ccircle cx='450' cy='650' r='28' fill='%23007acc'/%3E%3Ctext x='450' y='658' text-anchor='middle' fill='white' font-family='Arial' font-size='24'%3E%2B%3C/text%3E%3C/svg%3E",
+      "sizes": "540x720",
+      "type": "image/svg+xml",
+      "form_factor": "narrow"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Add Files",
+      "short_name": "Add",
+      "description": "Add PDF or image files",
+      "url": "./?action=add",
+      "icons": [
+        {
+          "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23007acc'%3E%3Cpath d='M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z'/%3E%3C/svg%3E",
+          "sizes": "96x96",
+          "type": "image/svg+xml"
+        }
+      ]
+    },
+    {
+      "name": "Export PDF",
+      "short_name": "Export",
+      "description": "Export current layout as PDF",
+      "url": "./?action=export",
+      "icons": [
+        {
+          "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23007acc'%3E%3Cpath d='M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z'/%3E%3C/svg%3E",
+          "sizes": "96x96",
+          "type": "image/svg+xml"
+        }
+      ]
+    }
+  ]
+}
