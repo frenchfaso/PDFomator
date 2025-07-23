@@ -9,7 +9,6 @@ const STATIC_ASSETS = [
     './main.js',
     './manifest.json',
     './libs/pdf.min.js',
-    './libs/html2canvas.min.js',
     './libs/jspdf.umd.min.js',
     'https://cdn.jsdelivr.net/npm/@picocss/pico@v2/css/pico.min.css'
 ];
