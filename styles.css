@@ -1,10 +1,7 @@
 /* Custom variables for theming */
 :root {
     --fab-size: 56px;
-    --fab-bg: #00    background: var(--sheet-bg);
-    border: 1px solid var(--gray-border-light);
-    border-radius: var(--border-radius);
-    box-shadow: var(--shadow-sheet);;
+    --fab-bg: #007acc;
     --fab-hover: #005fa3;
     --sheet-bg: #ffffff;
     --sheet-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
@@ -225,11 +222,6 @@ body {
     transform: scale(0.95);
 }
 
-/* Header FAB positioning */
-.fab-add {
-    position: static;
-}
-
 /* Bottom FABs container */
 .fab-container {
     position: fixed;
@@ -358,16 +350,6 @@ body {
 .size-option.selected {
     background: var(--primary-blue-light);
     border-color: var(--primary-blue);
-}
-
-.size-name {
-    font-weight: bold;
-    color: var(--primary-blue-dark);
-}
-
-.size-dimensions {
-    font-size: 0.9em;
-    color: var(--gray-text);
 }
 
 .size-preview {
