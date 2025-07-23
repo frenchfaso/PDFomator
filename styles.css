@@ -278,7 +278,7 @@ body {
     background: var(--gray-light);
     border: 2px solid var(--gray-border);
     border-radius: var(--border-radius);
-    padding: 1rem;
+    padding: 8px;
     cursor: pointer;
     transition: var(--transition-base);
 }
