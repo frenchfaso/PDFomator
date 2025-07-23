@@ -3,7 +3,7 @@
 <head>
         <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob:; connect-src 'self' https://cdnjs.cloudflare.com;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob:; connect-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com blob:;">
     <title>PDFomator</title>
     <meta name="description" content="Minimal Mobile PWA to Pack PDF Pages on a Sheet">
     
@@ -130,7 +130,6 @@
     
     <!-- Scripts -->
     <script src="libs/pdf.min.js"></script>
-    <script src="libs/html2canvas.min.js"></script>
     <script src="libs/jspdf.umd.min.js"></script>
     <script type="module" src="main.js"></script>
 </body>

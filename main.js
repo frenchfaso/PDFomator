@@ -349,23 +349,6 @@ async function processImageFileForCell(file, cellIndex) {
     });
 }
 
-function convertImageToBitmap(img, quality = 0.9) {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
-    
-    ctx.drawImage(img, 0, 0);
-    
-    // Convert to JPEG bitmap
-    const dataUrl = canvas.toDataURL('image/jpeg', quality);
-    const bitmap = new Image();
-    bitmap.src = dataUrl;
-    
-    return bitmap;
-}
-
 async function renderPDFPage(page, scale = 2, outputFormat = 'canvas') {
     const viewport = page.getViewport({ scale });
     
@@ -727,39 +710,267 @@ function hideLoading() {
 }
 
 async function exportToPDF() {
-    // Check if libraries are available
-    if (typeof html2canvas === 'undefined' || typeof jsPDF === 'undefined') {
-        throw new Error('Required libraries not loaded');
+    // Check if jsPDF is available
+    if (typeof window.jspdf === 'undefined') {
+        throw new Error('jsPDF library not loaded');
     }
     
-    // Capture the sheet at high resolution
-    const canvas = await html2canvas(elements.sheet, {
-        scale: 3, // 288 DPI (96 * 3)
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff'
+    try {
+        // Create PDF with exact sheet dimensions
+        const { width, height } = layoutState.sheet;
+        const pdf = new window.jspdf.jsPDF({
+            orientation: layoutState.sheet.orientation === 'portrait' ? 'p' : 'l',
+            unit: 'mm',
+            format: [width, height]
+        });
+        
+        // Get actual CSS grid spacing to match the preview exactly
+        const spacing = getGridSpacing();
+        
+        // Calculate available space after sheet padding
+        const { rows, cols } = layoutState.grid;
+        const availableWidth = width - spacing.sheetPadding.left - spacing.sheetPadding.right;
+        const availableHeight = height - spacing.sheetPadding.top - spacing.sheetPadding.bottom;
+        
+        // Calculate cell dimensions accounting for gaps
+        const totalGapWidth = spacing.columnGap * (cols - 1);
+        const totalGapHeight = spacing.rowGap * (rows - 1);
+        const cellWidth = (availableWidth - totalGapWidth) / cols;
+        const cellHeight = (availableHeight - totalGapHeight) / rows;
+        
+        // Calculate effective content area within each cell (accounting for cell padding)
+        const contentWidth = cellWidth - (spacing.cellPadding * 2);
+        const contentHeight = cellHeight - (spacing.cellPadding * 2);
+        
+        console.log(`PDF dimensions: ${width}×${height}mm, Grid: ${cols}×${rows}`);
+        console.log(`Sheet padding: ${spacing.sheetPadding.left.toFixed(1)}mm, Grid gap: ${spacing.columnGap.toFixed(1)}×${spacing.rowGap.toFixed(1)}mm, Cell padding: ${spacing.cellPadding.toFixed(1)}mm`);
+        console.log(`Cell size: ${cellWidth.toFixed(1)}×${cellHeight.toFixed(1)}mm, Content area: ${contentWidth.toFixed(1)}×${contentHeight.toFixed(1)}mm`);
+        
+        // Process each cell that has content
+        for (let i = 0; i < layoutState.cells.length; i++) {
+            const cellData = layoutState.cells[i];
+            if (!cellData || !cellData.content) continue;
+            
+            // Calculate cell position accounting for sheet padding, gaps, and cell padding
+            const row = Math.floor(i / cols);
+            const col = i % cols;
+            
+            // Cell position (including sheet padding and gaps)
+            const cellX = spacing.sheetPadding.left + col * (cellWidth + spacing.columnGap);
+            const cellY = spacing.sheetPadding.top + row * (cellHeight + spacing.rowGap);
+            
+            // Content position (cell position + cell padding)
+            const contentX = cellX + spacing.cellPadding;
+            const contentY = cellY + spacing.cellPadding;
+            
+            console.log(`Processing cell ${i} at grid (${col},${row}) -> cell coords (${cellX.toFixed(1)}, ${cellY.toFixed(1)}) -> content area (${contentX.toFixed(1)}, ${contentY.toFixed(1)})`);
+            
+            try {
+                // Get the image data URL from the content
+                const imageDataUrl = await blobToDataURL(cellData.content.src);
+                
+                // Load image to get natural dimensions
+                const imgDimensions = await getImageDimensions(imageDataUrl);
+                
+                // Calculate image placement based on object-fit mode (using content area dimensions)
+                const placement = calculateImagePlacement(
+                    imgDimensions,
+                    { width: contentWidth, height: contentHeight },
+                    cellData.objectFit || 'contain'
+                );
+                
+                // For modes that need clipping, use jsPDF clipping API
+                if (cellData.objectFit === 'cover' || cellData.objectFit === 'none') {
+                    // Use jsPDF clipping to contain overflow for both cover and none modes
+                    pdf.saveGraphicsState();
+                    pdf.rect(contentX, contentY, contentWidth, contentHeight, null);
+                    pdf.clip();
+                    pdf.discardPath();
+                    
+                    pdf.addImage(
+                        imageDataUrl,
+                        'JPEG',
+                        contentX + placement.x,
+                        contentY + placement.y,
+                        placement.width,
+                        placement.height
+                    );
+                    
+                    pdf.restoreGraphicsState();
+                } else {
+                    // For other modes (contain, fill, scale-down), no clipping needed
+                    pdf.addImage(
+                        imageDataUrl,
+                        'JPEG',
+                        contentX + placement.x,
+                        contentY + placement.y,
+                        placement.width,
+                        placement.height
+                    );
+                }
+                
+                console.log(`Added image to cell ${i}: ${placement.width.toFixed(1)}×${placement.height.toFixed(1)}mm at offset (${placement.x.toFixed(1)}, ${placement.y.toFixed(1)})`);
+                
+            } catch (error) {
+                console.error(`Failed to process cell ${i}:`, error);
+                // Continue with other cells
+            }
+        }
+        
+        // Generate filename with timestamp
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-');
+        const filename = `pdfomator-layout-${timestamp}.pdf`;
+        
+        // Save the PDF
+        pdf.save(filename);
+        
+        console.log(`PDF exported successfully: ${filename}`);
+        
+    } catch (error) {
+        console.error('Export failed:', error);
+        throw error;
+    }
+}
+
+// Helper function to convert blob URL or blob to data URL
+function blobToDataURL(input) {
+    return new Promise((resolve, reject) => {
+        // If it's already a data URL, return it directly
+        if (typeof input === 'string' && input.startsWith('data:')) {
+            resolve(input);
+            return;
+        }
+        
+        // If it's a blob URL, fetch it first
+        if (typeof input === 'string' && input.startsWith('blob:')) {
+            fetch(input)
+                .then(response => response.blob())
+                .then(blob => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                })
+                .catch(reject);
+            return;
+        }
+        
+        // If it's a direct blob object
+        if (input instanceof Blob) {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(input);
+            return;
+        }
+        
+        // Unsupported type
+        reject(new Error(`Unsupported input type: ${typeof input}`));
     });
-    
-    // Create PDF
-    const { width, height } = layoutState.sheet;
-    const pdf = new jsPDF.jsPDF({
-        orientation: layoutState.sheet.orientation === 'portrait' ? 'p' : 'l',
-        unit: 'mm',
-        format: [width, height]
+}
+
+// Helper function to get image natural dimensions
+function getImageDimensions(dataUrl) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            resolve({
+                width: img.naturalWidth,
+                height: img.naturalHeight
+            });
+        };
+        img.onerror = reject;
+        img.src = dataUrl;
     });
+}
+
+// Helper function to calculate image placement based on object-fit
+function calculateImagePlacement(imgDimensions, cellDimensions, objectFit) {
+    const imgAspect = imgDimensions.width / imgDimensions.height;
+    const cellAspect = cellDimensions.width / cellDimensions.height;
     
-    // Add the canvas as an image to fill the entire page
-    const imgData = canvas.toDataURL('image/png');
-    pdf.addImage(imgData, 'PNG', 0, 0, width, height);
+    // DPI conversion factors:
+    // Browser CSS: 96 DPI = 25.4mm ÷ 96 = 0.264583mm per pixel
+    // PDF default: 72 DPI = 25.4mm ÷ 72 = 0.352778mm per pixel
+    const browserDpiToMm = 25.4 / 96; // 0.264583 - matches CSS object-fit: none behavior
+    const pdfDpiToMm = 25.4 / 72; // 0.352778 - legacy for reference
     
-    // Generate filename with timestamp
-    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-');
-    const filename = `pdfomator-layout-${timestamp}.pdf`;
+    let width, height, x = 0, y = 0;
     
-    // Save the PDF
-    pdf.save(filename);
+    switch (objectFit) {
+        case 'fill':
+            // Stretch to fill entire cell
+            width = cellDimensions.width;
+            height = cellDimensions.height;
+            break;
+            
+        case 'cover':
+            // Scale to cover entire cell, may crop
+            if (imgAspect > cellAspect) {
+                // Image is wider than cell - fit height and crop width
+                height = cellDimensions.height;
+                width = height * imgAspect;
+                x = (cellDimensions.width - width) / 2;
+            } else {
+                // Image is taller than cell - fit width and crop height
+                width = cellDimensions.width;
+                height = width / imgAspect;
+                y = (cellDimensions.height - height) / 2;
+            }
+            break;
+            
+        case 'none':
+            // Use PDF DPI conversion to match jsPDF's internal scaling
+            width = imgDimensions.width * pdfDpiToMm;
+            height = imgDimensions.height * pdfDpiToMm;
+            x = (cellDimensions.width - width) / 2;
+            y = (cellDimensions.height - height) / 2;
+            break;
+            
+        case 'scale-down':
+            // Same as contain but never scale up beyond original size
+            if (imgAspect > cellAspect) {
+                width = cellDimensions.width;
+                height = width / imgAspect;
+            } else {
+                height = cellDimensions.height;
+                width = height * imgAspect;
+            }
+            
+            // Don't scale up beyond original size
+            const originalWidthMm = imgDimensions.width * pdfDpiToMm;
+            const originalHeightMm = imgDimensions.height * pdfDpiToMm;
+            
+            if (width > originalWidthMm) {
+                width = originalWidthMm;
+                height = originalHeightMm;
+            } else if (height > originalHeightMm) {
+                width = originalWidthMm;
+                height = originalHeightMm;
+            }
+            
+            x = (cellDimensions.width - width) / 2;
+            y = (cellDimensions.height - height) / 2;
+            break;
+            
+        case 'contain':
+        default:
+            // Scale to fit entirely within cell, maintain aspect ratio
+            if (imgAspect > cellAspect) {
+                // Image is wider than cell - fit width
+                width = cellDimensions.width;
+                height = width / imgAspect;
+                y = (cellDimensions.height - height) / 2;
+            } else {
+                // Image is taller than cell - fit height
+                height = cellDimensions.height;
+                width = height * imgAspect;
+                x = (cellDimensions.width - width) / 2;
+            }
+            break;
+    }
     
-    console.log(`PDF exported: ${filename}`);
+    return { x, y, width, height };
 }
 
 // Export for debugging
@@ -782,3 +993,76 @@ window.PDFomator = {
 // - Annotation tools
 // - Print optimization
 // - Template saving/loading
+
+// Helper function to get actual CSS grid spacing in mm
+function getGridSpacing() {
+    const sheet = elements.sheet;
+    const computedStyle = window.getComputedStyle(sheet);
+    
+    // Get CSS gap values
+    const gap = computedStyle.gap;
+    const rowGap = computedStyle.rowGap || computedStyle.gridRowGap || '0px';
+    const columnGap = computedStyle.columnGap || computedStyle.gridColumnGap || '0px';
+    
+    // Get sheet padding
+    const paddingTop = parseFloat(computedStyle.paddingTop) || 0;
+    const paddingRight = parseFloat(computedStyle.paddingRight) || 0;
+    const paddingBottom = parseFloat(computedStyle.paddingBottom) || 0;
+    const paddingLeft = parseFloat(computedStyle.paddingLeft) || 0;
+    
+    // Parse gap values - handle both shorthand and individual properties
+    let parsedRowGap, parsedColumnGap;
+    
+    if (gap && gap !== 'normal' && gap !== '0px') {
+        // Shorthand 'gap' property - could be "10px" or "10px 15px"
+        const gapValues = gap.split(' ');
+        parsedRowGap = parseFloat(gapValues[0]);
+        parsedColumnGap = parseFloat(gapValues[1] || gapValues[0]);
+    } else {
+        // Individual properties
+        parsedRowGap = parseFloat(rowGap);
+        parsedColumnGap = parseFloat(columnGap);
+    }
+    
+    // Get cell padding by checking a filled cell (if any exists)
+    let cellPadding = 0;
+    const filledCell = sheet.querySelector('.sheet-cell.filled');
+    if (filledCell) {
+        const cellStyle = window.getComputedStyle(filledCell);
+        // Use the maximum padding value (they should be the same in our case)
+        cellPadding = Math.max(
+            parseFloat(cellStyle.paddingTop) || 0,
+            parseFloat(cellStyle.paddingRight) || 0,
+            parseFloat(cellStyle.paddingBottom) || 0,
+            parseFloat(cellStyle.paddingLeft) || 0
+        );
+    } else {
+        // Fallback: create a temporary filled cell to measure
+        const tempCell = document.createElement('div');
+        tempCell.className = 'sheet-cell filled';
+        tempCell.style.visibility = 'hidden';
+        tempCell.style.position = 'absolute';
+        sheet.appendChild(tempCell);
+        const tempStyle = window.getComputedStyle(tempCell);
+        cellPadding = parseFloat(tempStyle.paddingTop) || 0;
+        sheet.removeChild(tempCell);
+    }
+    
+    // Convert from pixels to mm using PDF DPI conversion to match jsPDF
+    const pdfDpiToMm = 25.4 / 72; // 0.352778 - matches jsPDF's internal scaling
+    
+    return {
+        rowGap: (parsedRowGap || 0) * pdfDpiToMm,
+        columnGap: (parsedColumnGap || 0) * pdfDpiToMm,
+        sheetPadding: {
+            top: paddingTop * pdfDpiToMm,
+            right: paddingRight * pdfDpiToMm,
+            bottom: paddingBottom * pdfDpiToMm,
+            left: paddingLeft * pdfDpiToMm
+        },
+        cellPadding: cellPadding * pdfDpiToMm
+    };
+}
+
+// Helper function to crop image for cover mode
+// End of file
