@@ -515,7 +515,7 @@ body {
 
 .page-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    grid-template-columns: repeat(2, 1fr);
     gap: 1rem;
     margin: 1rem 0;
     max-height: 60vh;
@@ -692,7 +692,7 @@ body {
     }
     
     .page-grid {
-        grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+        grid-template-columns: 1fr;
     }
     
     .sheet-cell .add-btn {
