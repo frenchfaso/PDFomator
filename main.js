@@ -484,15 +484,10 @@ function renderCell(cellIndex) {
     
     console.log(`Rendering filled cell ${cellIndex} with content:`, cellData.title);
     
-    // Add content
-    if (cellData.content instanceof HTMLCanvasElement) {
-        const canvas = cellData.content.cloneNode();
-        cellElement.appendChild(canvas);
-    } else if (cellData.content instanceof Image) {
-        const img = document.createElement('img');
-        img.src = cellData.content.src;
-        cellElement.appendChild(img);
-    }
+    // Add content - always as img node
+    const img = document.createElement('img');
+    img.src = cellData.content.src;
+    cellElement.appendChild(img);
     
     // Add remove button
     const removeBtn = document.createElement('button');
