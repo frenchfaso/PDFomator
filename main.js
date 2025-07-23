@@ -13,8 +13,7 @@ const layoutState = {
         cols: 1,
         rows: 2
     },
-    cells: [], // Array of cell contents
-    currentCellIndex: 0
+    cells: [] // Array of cell contents
 };
 
 // Configuration
@@ -55,6 +54,21 @@ let currentTargetCell = null; // Track which cell is being filled
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', init);
+
+// Global error boundary
+window.addEventListener('error', (event) => {
+    console.error('Global error caught:', event.error);
+    hideLoading(); // Hide any loading states
+    alert('An unexpected error occurred. Please refresh the page and try again.');
+});
+
+// Global promise rejection handler
+window.addEventListener('unhandledrejection', (event) => {
+    console.error('Unhandled promise rejection:', event.reason);
+    hideLoading(); // Hide any loading states
+    alert('An unexpected error occurred. Please refresh the page and try again.');
+    event.preventDefault(); // Prevent the default browser behavior
+});
 
 async function init() {
     // Cache DOM elements
@@ -190,10 +204,6 @@ function handleKeyboard(e) {
     }
 }
 
-function handleAddFiles() {
-    elements.fileInput.click();
-}
-
 function handleSizePicker() {
     showSizePicker();
 }
@@ -222,30 +232,6 @@ async function handleExport() {
         alert('Export failed. Please try again.');
     } finally {
         hideLoading();
-    }
-}
-
-async function handleFileSelection(e) {
-    const files = Array.from(e.target.files);
-    if (files.length === 0) return;
-    
-    showLoading('Processing files...');
-    
-    try {
-        for (const file of files) {
-            if (file.type === 'application/pdf') {
-                await processPDFFile(file);
-            } else if (file.type.startsWith('image/')) {
-                await processImageFile(file);
-            }
-        }
-    } catch (error) {
-        console.error('File processing failed:', error);
-        alert('Failed to process some files. Please try again.');
-    } finally {
-        hideLoading();
-        // Clear the file input
-        elements.fileInput.value = '';
     }
 }
 
@@ -330,12 +316,18 @@ async function processPDFFile(file) {
 async function processImageFile(file) {
     return new Promise((resolve, reject) => {
         const img = new Image();
+        const objectUrl = URL.createObjectURL(file);
+        
         img.onload = () => {
             addToNextCell(img, file.name);
+            URL.revokeObjectURL(objectUrl); // Clean up memory
             resolve();
         };
-        img.onerror = reject;
-        img.src = URL.createObjectURL(file);
+        img.onerror = () => {
+            URL.revokeObjectURL(objectUrl); // Clean up memory on error too
+            reject();
+        };
+        img.src = objectUrl;
     });
 }
 
@@ -361,14 +353,20 @@ async function processPDFFileForCell(file, cellIndex) {
 async function processImageFileForCell(file, cellIndex) {
     return new Promise((resolve, reject) => {
         const img = new Image();
+        const objectUrl = URL.createObjectURL(file);
+        
         img.onload = () => {
             // Convert image to bitmap (JPEG quality 90)
             const bitmap = convertImageToBitmap(img, 0.9);
             addToSpecificCell(bitmap, file.name, cellIndex);
+            URL.revokeObjectURL(objectUrl); // Clean up memory
             resolve();
         };
-        img.onerror = reject;
-        img.src = URL.createObjectURL(file);
+        img.onerror = () => {
+            URL.revokeObjectURL(objectUrl); // Clean up memory on error too
+            reject();
+        };
+        img.src = objectUrl;
     });
 }
 
@@ -389,8 +387,7 @@ function convertImageToBitmap(img, quality = 0.9) {
     return bitmap;
 }
 
-async function renderPDFPageToBitmap(page, quality = 0.9) {
-    const scale = 2; // Higher resolution
+async function renderPDFPage(page, scale = 2, outputFormat = 'canvas') {
     const viewport = page.getViewport({ scale });
     
     const canvas = document.createElement('canvas');
@@ -404,12 +401,23 @@ async function renderPDFPageToBitmap(page, quality = 0.9) {
         viewport: viewport
     }).promise;
     
-    // Convert to JPEG bitmap
-    const dataUrl = canvas.toDataURL('image/jpeg', quality);
-    const bitmap = new Image();
-    bitmap.src = dataUrl;
+    if (outputFormat === 'bitmap') {
+        // Convert to JPEG bitmap
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        const bitmap = new Image();
+        bitmap.src = dataUrl;
+        return bitmap;
+    }
     
-    return bitmap;
+    return canvas;
+}
+
+async function renderPDFPageToBitmap(page, quality = 0.9) {
+    return await renderPDFPage(page, 2, 'bitmap');
+}
+
+async function renderPDFPageToCanvas(page, scale = 2) {
+    return await renderPDFPage(page, scale, 'canvas');
 }
 
 async function showPDFPageSelector(pdf, fileName, cellIndex) {
@@ -452,23 +460,6 @@ async function showPDFPageSelector(pdf, fileName, cellIndex) {
     }
     
     showPageSelector();
-}
-
-async function renderPDFPageToCanvas(page, scale = 2) {
-    const viewport = page.getViewport({ scale });
-    
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
-    
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    
-    await page.render({
-        canvasContext: context,
-        viewport: viewport
-    }).promise;
-    
-    return canvas;
 }
 
 function addToNextCell(content, title = '') {
