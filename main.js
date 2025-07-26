@@ -100,9 +100,27 @@ function registerServiceWorker() {
                 // Check for updates
                 registration.addEventListener('updatefound', () => {
                     console.log('[App] Service Worker update found');
-                    // Get updated version when service worker updates
-                    setTimeout(() => getServiceWorkerVersion(), 1000);
+                    
+                    const newWorker = registration.installing;
+                    if (newWorker) {
+                        newWorker.addEventListener('statechange', () => {
+                            console.log('[App] New Service Worker state:', newWorker.state);
+                            
+                            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                // New version is available
+                                console.log('[App] New version available, will auto-update');
+                                showUpdateNotification();
+                            }
+                        });
+                    }
                 });
+                
+                // Automatically check for updates periodically
+                setInterval(() => {
+                    console.log('[App] Checking for updates...');
+                    registration.update();
+                }, 60000); // Check every minute
+                
             })
             .catch(error => {
                 console.error('[App] Service Worker registration failed:', error);
@@ -110,12 +128,52 @@ function registerServiceWorker() {
             
         // Listen for service worker controller changes
         navigator.serviceWorker.addEventListener('controllerchange', () => {
-            console.log('[App] Service Worker controller changed');
-            getServiceWorkerVersion();
+            console.log('[App] Service Worker controller changed - reloading app');
+            // Automatically reload when new service worker takes control
+            window.location.reload();
         });
     } else {
         console.log('[App] Service Worker not supported');
     }
+}
+
+function showUpdateNotification() {
+    // Create a simple update notification
+    const notification = document.createElement('div');
+    notification.className = 'update-notification';
+    notification.innerHTML = `
+        <div class="update-content">
+            <span>🔄 App updated! New version available.</span>
+            <button id="updateBtn" class="update-btn">Refresh</button>
+            <button id="dismissBtn" class="dismiss-btn">×</button>
+        </div>
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // Auto-dismiss after 10 seconds
+    const autoDismiss = setTimeout(() => {
+        if (notification.parentNode) {
+            notification.remove();
+        }
+    }, 10000);
+    
+    // Handle update button click
+    document.getElementById('updateBtn').addEventListener('click', () => {
+        clearTimeout(autoDismiss);
+        if (navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' });
+        }
+        notification.remove();
+    });
+    
+    // Handle dismiss button click
+    document.getElementById('dismissBtn').addEventListener('click', () => {
+        clearTimeout(autoDismiss);
+        notification.remove();
+    });
+    
+    console.log('[App] Update notification shown');
 }
 
 async function getServiceWorkerVersion() {
