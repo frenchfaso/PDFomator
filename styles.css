@@ -201,6 +201,12 @@ body {
     gap: 4px;
     justify-content: center;
     margin: 1rem 0;
+    /* Touch-friendly improvements */
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    touch-action: none; /* Prevent scrolling during touch interactions */
 }
 
 .grid-cell {
@@ -210,6 +216,11 @@ body {
     padding: 8px;
     cursor: pointer;
     transition: all 0.2s ease;
+    /* Touch-friendly improvements */
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none; /* Disable iOS callout */
+    -webkit-tap-highlight-color: transparent; /* Disable tap highlight */
 }
 
 .grid-cell:hover, .grid-cell.highlighted {
