@@ -710,22 +710,21 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
         let isInteracting = false;
         let startTouches = [];
         let startTransform = { ...cellData.transform };
-        let touchStartTime = 0;
-        let touchMoved = false;
-        let touchStartPosition = null;
         
-        // Mouse events for desktop (keep click for desktop)
-        imageEl.addEventListener('mousedown', startInteraction);
-        imageEl.addEventListener('wheel', handleWheel, { passive: false });
+        // Handle click for desktop fill mode cycling
         imageEl.addEventListener('click', (e) => {
             e.stopPropagation();
-            // Only handle click on desktop (when touch events aren't used)
+            // Only handle click on desktop (no touch support)
             if (!('ontouchstart' in window) && !isInteracting) {
                 cycleFillMode(cellIndex);
             }
         });
         
-        // Touch events for mobile with better handling
+        // Mouse events for desktop
+        imageEl.addEventListener('mousedown', startInteraction);
+        imageEl.addEventListener('wheel', handleWheel, { passive: false });
+        
+        // Touch events for mobile - simplified
         imageEl.addEventListener('touchstart', handleTouchStart, { passive: false });
         imageEl.addEventListener('touchmove', handleTouchMove, { passive: false });
         imageEl.addEventListener('touchend', handleTouchEnd, { passive: false });
@@ -736,22 +735,12 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
         e.stopPropagation();
         
         isInteracting = true;
-        touchStartTime = Date.now();
-        touchMoved = false;
         
         startTouches = Array.from(e.touches).map(touch => ({
             x: touch.clientX,
             y: touch.clientY,
             identifier: touch.identifier
         }));
-        
-        // Store the initial touch position for movement detection
-        if (startTouches.length === 1) {
-            touchStartPosition = {
-                x: startTouches[0].x,
-                y: startTouches[0].y
-            };
-        }
         
         // Capture the current transform state at the start of interaction
         startTransform = { ...cellData.transform };
@@ -762,19 +751,6 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
         e.stopPropagation();
         
         if (!isInteracting) return;
-        
-        // Check if touch has moved significantly (more than 10px is not a tap)
-        if (!touchMoved && touchStartPosition && startTouches.length === 1) {
-            const currentTouch = e.touches[0];
-            const deltaX = Math.abs(currentTouch.clientX - touchStartPosition.x);
-            const deltaY = Math.abs(currentTouch.clientY - touchStartPosition.y);
-            
-            if (deltaX > 10 || deltaY > 10) {
-                touchMoved = true;
-            }
-        } else {
-            touchMoved = true;
-        }
         
         const currentTouches = Array.from(e.touches);
         
@@ -831,20 +807,10 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
         e.preventDefault();
         e.stopPropagation();
         
-        const touchDuration = Date.now() - touchStartTime;
-        
         // If all touches are gone, end interaction
         if (e.touches.length === 0) {
-            // Check if this was a tap gesture (short duration, minimal movement, single finger)
-            if (!touchMoved && touchDuration < 500 && startTouches.length === 1) {
-                // This was a tap - cycle fill mode directly (no setTimeout needed)
-                cycleFillMode(cellIndex);
-            }
-            
             isInteracting = false;
             startTouches = [];
-            touchMoved = false;
-            touchStartPosition = null;
         } else if (e.touches.length < startTouches.length) {
             // Some touches lifted, update the remaining touches as new start
             startTouches = Array.from(e.touches).map(touch => ({
@@ -853,17 +819,6 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
                 identifier: touch.identifier
             }));
             startTransform = { ...cellData.transform };
-            touchMoved = false; // Reset for the new gesture
-            
-            // Update touch start position for single finger gestures
-            if (startTouches.length === 1) {
-                touchStartPosition = {
-                    x: startTouches[0].x,
-                    y: startTouches[0].y
-                };
-            } else {
-                touchStartPosition = null;
-            }
         }
     }
     
@@ -1063,26 +1018,38 @@ function renderSVGCell(cellGroup, cellIndex, cellX, cellY, cellWidth, cellHeight
         
         cellGroup.appendChild(imageEl);
         
-        // Add fill mode indicator with enhanced text for cover mode
-        const indicatorText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        indicatorText.setAttribute('x', cellX + 2);
-        indicatorText.setAttribute('y', cellY + 8);
-        indicatorText.setAttribute('font-family', 'monospace');
-        indicatorText.setAttribute('font-size', '6');
-        indicatorText.setAttribute('fill', '#666');
+        // Add fill mode cycling button (small circle with square icon in top-left)
+        const fillModeBtn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        fillModeBtn.style.cursor = 'pointer';
         
-        if (cellData.fillMode === 'cover') {
-            // Ensure transform exists (backward compatibility)
-            if (!cellData.transform) {
-                cellData.transform = { scale: 1, translateX: 0, translateY: 0 };
-            }
-            const transform = cellData.transform;
-            indicatorText.textContent = `${cellData.fillMode} (${transform.scale.toFixed(1)}x) - drag/zoom`;
-        } else {
-            indicatorText.textContent = cellData.fillMode;
-        }
+        const fillModeBtnCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        fillModeBtnCircle.setAttribute('cx', cellX + 8);
+        fillModeBtnCircle.setAttribute('cy', cellY + 8);
+        fillModeBtnCircle.setAttribute('r', '6');
+        fillModeBtnCircle.setAttribute('fill', 'rgba(40, 167, 69, 0.9)');
+        fillModeBtnCircle.setAttribute('stroke', 'white');
+        fillModeBtnCircle.setAttribute('stroke-width', '1');
         
-        cellGroup.appendChild(indicatorText);
+        // Simple white square outline icon
+        const fillModeBtnIcon = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        fillModeBtnIcon.setAttribute('x', cellX + 6);
+        fillModeBtnIcon.setAttribute('y', cellY + 6);
+        fillModeBtnIcon.setAttribute('width', '4');
+        fillModeBtnIcon.setAttribute('height', '4');
+        fillModeBtnIcon.setAttribute('fill', 'none');
+        fillModeBtnIcon.setAttribute('stroke', 'white');
+        fillModeBtnIcon.setAttribute('stroke-width', '1');
+        
+        fillModeBtn.appendChild(fillModeBtnCircle);
+        fillModeBtn.appendChild(fillModeBtnIcon);
+        
+        // Add click handler for fill mode cycling button
+        fillModeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            cycleFillMode(cellIndex);
+        });
+        
+        cellGroup.appendChild(fillModeBtn);
         
         // Add remove button (small circle with X)
         const removeBtn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -1157,17 +1124,33 @@ function renderSVGCell(cellGroup, cellIndex, cellX, cellY, cellWidth, cellHeight
         }
         
     } else {
-        // Empty cell - add placeholder text
-        const placeholderText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        placeholderText.setAttribute('x', cellX + cellWidth / 2);
-        placeholderText.setAttribute('y', cellY + cellHeight / 2);
-        placeholderText.setAttribute('text-anchor', 'middle');
-        placeholderText.setAttribute('dominant-baseline', 'central');
-        placeholderText.setAttribute('font-family', 'sans-serif');
-        placeholderText.setAttribute('font-size', '8');
-        placeholderText.setAttribute('fill', '#adb5bd');
-        placeholderText.textContent = 'Click to add image';
-        cellGroup.appendChild(placeholderText);
+        // Empty cell - add subtle "+" button
+        const addBtn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        addBtn.style.cursor = 'pointer';
+        
+        const addBtnCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        addBtnCircle.setAttribute('cx', cellX + cellWidth / 2);
+        addBtnCircle.setAttribute('cy', cellY + cellHeight / 2);
+        addBtnCircle.setAttribute('r', '12'); // Bigger than control buttons
+        addBtnCircle.setAttribute('fill', 'rgba(173, 181, 189, 0.3)'); // Light gray, barely visible
+        addBtnCircle.setAttribute('stroke', 'rgba(173, 181, 189, 0.5)');
+        addBtnCircle.setAttribute('stroke-width', '1');
+        
+        const addBtnText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        addBtnText.setAttribute('x', cellX + cellWidth / 2);
+        addBtnText.setAttribute('y', cellY + cellHeight / 2);
+        addBtnText.setAttribute('text-anchor', 'middle');
+        addBtnText.setAttribute('dominant-baseline', 'central');
+        addBtnText.setAttribute('font-family', 'monospace');
+        addBtnText.setAttribute('font-size', '16');
+        addBtnText.setAttribute('fill', 'rgba(173, 181, 189, 0.7)');
+        addBtnText.setAttribute('font-weight', 'normal');
+        addBtnText.textContent = '+';
+        
+        addBtn.appendChild(addBtnCircle);
+        addBtn.appendChild(addBtnText);
+        
+        cellGroup.appendChild(addBtn);
     }
 }
 
@@ -1264,6 +1247,9 @@ function setupGridMatrix() {
     const matrix = elements.gridMatrix;
     matrix.innerHTML = '';
     
+    // Track touch state for drag highlighting
+    let isDragging = false;
+    
     // Create 5x5 grid of selectable cells
     for (let row = 1; row <= CONFIG.maxGridSize; row++) {
         for (let col = 1; col <= CONFIG.maxGridSize; col++) {
@@ -1272,13 +1258,56 @@ function setupGridMatrix() {
             cell.dataset.row = row;
             cell.dataset.col = col;
             
-            // Event handlers for grid selection
+            // Mouse event handlers for desktop
             cell.addEventListener('mouseenter', () => highlightGridArea(col, row));
             cell.addEventListener('click', () => selectGrid(col, row));
+            
+            // Touch event handlers for mobile
+            cell.addEventListener('touchstart', (e) => {
+                e.preventDefault(); // Prevent scrolling and other default behaviors
+                isDragging = true;
+                highlightGridArea(col, row);
+            });
+            
+            cell.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                if (isDragging) {
+                    // Find which cell is under the touch point
+                    const touch = e.touches[0];
+                    const elementUnderTouch = document.elementFromPoint(touch.clientX, touch.clientY);
+                    
+                    if (elementUnderTouch && elementUnderTouch.classList.contains('grid-cell')) {
+                        const touchCol = parseInt(elementUnderTouch.dataset.col);
+                        const touchRow = parseInt(elementUnderTouch.dataset.row);
+                        highlightGridArea(touchCol, touchRow);
+                    }
+                }
+            });
+            
+            cell.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                if (isDragging) {
+                    isDragging = false;
+                    // Select the grid that was highlighted when touch ended
+                    const touch = e.changedTouches[0];
+                    const elementUnderTouch = document.elementFromPoint(touch.clientX, touch.clientY);
+                    
+                    if (elementUnderTouch && elementUnderTouch.classList.contains('grid-cell')) {
+                        const touchCol = parseInt(elementUnderTouch.dataset.col);
+                        const touchRow = parseInt(elementUnderTouch.dataset.row);
+                        selectGrid(touchCol, touchRow);
+                    }
+                }
+            });
             
             matrix.appendChild(cell);
         }
     }
+    
+    // Add global touch cancel handler for the grid matrix
+    matrix.addEventListener('touchcancel', () => {
+        isDragging = false;
+    });
 }
 
 function highlightGridArea(cols, rows) {
