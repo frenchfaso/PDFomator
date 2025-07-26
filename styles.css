@@ -1,21 +1,19 @@
-/* PDFomator - Minimal CSS */
+/* PDFomator - Custom styles for Pico CSS Red Theme */
+
+/* CSS Variables for red theme overrides */
 :root {
     --fab-size: 56px;
-    --fab-bg: #007acc;
-    --fab-hover: #005fa3;
     --border-radius: 8px;
     --border-radius-small: 4px;
-    --primary-blue: #2196f3;
-    --primary-blue-light: #e3f2fd;
-    --primary-blue-dark: #1976d2;
-    --gray-light: #f8f9fa;
-    --gray-border: #e9ecef;
-    --gray-medium: #6c757d;
-    --gray-dark: #5a6268;
     --shadow-overlay: 0 4px 20px rgba(0,0,0,0.2);
     --shadow-fab: 0 4px 12px rgba(0, 0, 0, 0.2);
     --shadow-fab-hover: 0 6px 16px rgba(0, 0, 0, 0.3);
     --backdrop-blur: blur(4px);
+    
+    /* Red theme colors - using Pico's red palette */
+    --custom-red: #dc2626;
+    --custom-red-hover: #b91c1c;
+    --custom-red-dark: #991b1b;
 }
 
 /* Reset and base layout */
@@ -53,9 +51,9 @@ body {
     justify-content: center;
     align-items: center;
     padding: 1.5rem 1rem;
-    background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
-    border-bottom: 1px solid #e9ecef;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    background: var(--custom-red);
+    border-bottom: 1px solid var(--custom-red-dark);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     z-index: 10;
     position: relative;
     flex-shrink: 0;
@@ -65,13 +63,9 @@ body {
     margin: 0;
     font-size: 1.8rem;
     font-weight: 600;
-    color: #2c3e50;
+    color: white;
     letter-spacing: -0.02em;
     text-align: center;
-    background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
 }
 
 /* Main content */
@@ -134,7 +128,7 @@ body {
     height: var(--fab-size);
     border-radius: 50%;
     border: none;
-    background: var(--fab-bg);
+    background: var(--custom-red);
     color: white;
     font-size: 1.2rem;
     cursor: pointer;
@@ -148,12 +142,15 @@ body {
 }
 
 .fab:hover {
-    background: var(--fab-hover);
+    background: var(--custom-red-hover);
     transform: scale(1.1);
     box-shadow: var(--shadow-fab-hover);
 }
 
-.fab:active { transform: scale(0.95); }
+.fab:active { 
+    transform: scale(0.95); 
+    background: var(--custom-red-dark);
+}
 
 .fab-container {
     display: flex;
@@ -200,8 +197,8 @@ body {
 }
 
 .grid-cell {
-    background: var(--gray-light);
-    border: 2px solid var(--gray-border);
+    background: white;
+    border: 2px solid var(--pico-muted-border-color);
     border-radius: var(--border-radius);
     padding: 8px;
     cursor: pointer;
@@ -209,13 +206,13 @@ body {
 }
 
 .grid-cell:hover, .grid-cell.highlighted {
-    background: var(--primary-blue-light);
-    border-color: var(--primary-blue);
+    background: #fee2e2;
+    border-color: var(--pico-primary);
 }
 
 .grid-info {
     font-weight: bold;
-    color: var(--primary-blue-dark);
+    color: var(--pico-primary);
 }
 
 /* Size picker */
@@ -231,15 +228,15 @@ body {
 }
 
 .size-option.selected {
-    background: var(--primary-blue-light);
-    border-color: var(--primary-blue);
+    background: #fee2e2;
+    border-color: var(--pico-primary);
 }
 
 .size-preview {
     width: 60px;
     height: 60px;
     background: white;
-    border: 2px solid var(--gray-border);
+    border: 2px solid var(--pico-muted-border-color);
     border-radius: var(--border-radius-small);
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     margin-bottom: 0.75rem;
@@ -270,6 +267,17 @@ body {
     gap: 0.75rem;
     font-size: 1rem;
     color: inherit;
+    padding: 0.75rem;
+    border-radius: var(--border-radius);
+    transition: all 0.2s ease;
+    cursor: pointer;
+    background: white;
+    border: 2px solid var(--pico-muted-border-color);
+}
+
+.file-type-btn:hover {
+    background: #fee2e2;
+    border-color: var(--pico-primary);
 }
 
 .file-type-icon {
@@ -300,8 +308,8 @@ body {
 }
 
 .page-thumbnail:hover {
-    background: #e3f2fd;
-    border-color: #2196f3;
+    background: #fee2e2;
+    border-color: var(--pico-primary);
 }
 
 .page-thumbnail canvas {
@@ -318,8 +326,8 @@ body {
 
 /* Interactive elements */
 .interactive-card {
-    background: var(--gray-light);
-    border: 2px solid var(--gray-border);
+    background: white;
+    border: 2px solid var(--pico-muted-border-color);
     border-radius: var(--border-radius);
     padding: 1rem;
     cursor: pointer;
@@ -327,13 +335,13 @@ body {
 }
 
 .interactive-card:hover {
-    background: var(--primary-blue-light);
-    border-color: var(--primary-blue);
+    background: #fee2e2;
+    border-color: var(--pico-primary);
 }
 
 .btn-cancel {
     margin-top: 1rem;
-    background: var(--gray-medium);
+    background: #6b7280;
     color: white;
     border: none;
     padding: 0.5rem 1rem;
@@ -343,7 +351,7 @@ body {
 }
 
 .btn-cancel:hover {
-    background: var(--gray-dark);
+    background: #4b5563;
 }
 
 /* Loading indicator */

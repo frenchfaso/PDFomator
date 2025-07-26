@@ -1,20 +1,21 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob:; connect-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net blob:;">
     <title>PDFomator</title>
     <meta name="description" content="Minimal Mobile PWA to Pack PDF Pages on a Sheet">
     
     <!-- PWA -->
     <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#007acc">
+    <meta name="theme-color" content="#dc2626">
         <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
-    <!-- Pico CSS -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@v2/css/pico.min.css">
+    <!-- Pico CSS Red Theme -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.red.min.css">
     
     <!-- Custom Styles -->
     <link rel="stylesheet" href="styles.css">
@@ -107,11 +108,11 @@
         <div class="file-type-picker">
             <h3>Choose Content Type</h3>
             <div class="file-type-buttons">
-                <button id="selectPdfBtn" class="file-type-btn interactive-card">
+                <button id="selectPdfBtn" class="file-type-btn">
                     <span class="file-type-icon">📄</span>
                     <span>PDF Document</span>
                 </button>
-                <button id="selectImageBtn" class="file-type-btn interactive-card">
+                <button id="selectImageBtn" class="file-type-btn">
                     <span class="file-type-icon">🖼️</span>
                     <span>Image File</span>
                 </button>
