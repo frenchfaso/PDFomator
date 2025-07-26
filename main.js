@@ -712,18 +712,18 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
         let startTransform = { ...cellData.transform };
         let touchStartTime = 0;
         let touchMoved = false;
+        let touchStartPosition = null;
         
-        // Handle tap gestures for fill mode cycling
+        // Mouse events for desktop (keep click for desktop)
+        imageEl.addEventListener('mousedown', startInteraction);
+        imageEl.addEventListener('wheel', handleWheel, { passive: false });
         imageEl.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (!isInteracting) {
+            // Only handle click on desktop (when touch events aren't used)
+            if (!('ontouchstart' in window) && !isInteracting) {
                 cycleFillMode(cellIndex);
             }
         });
-        
-        // Mouse events for desktop
-        imageEl.addEventListener('mousedown', startInteraction);
-        imageEl.addEventListener('wheel', handleWheel, { passive: false });
         
         // Touch events for mobile with better handling
         imageEl.addEventListener('touchstart', handleTouchStart, { passive: false });
@@ -745,6 +745,14 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
             identifier: touch.identifier
         }));
         
+        // Store the initial touch position for movement detection
+        if (startTouches.length === 1) {
+            touchStartPosition = {
+                x: startTouches[0].x,
+                y: startTouches[0].y
+            };
+        }
+        
         // Capture the current transform state at the start of interaction
         startTransform = { ...cellData.transform };
     }
@@ -755,8 +763,18 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
         
         if (!isInteracting) return;
         
-        // Mark that touch has moved (not a tap)
-        touchMoved = true;
+        // Check if touch has moved significantly (more than 10px is not a tap)
+        if (!touchMoved && touchStartPosition && startTouches.length === 1) {
+            const currentTouch = e.touches[0];
+            const deltaX = Math.abs(currentTouch.clientX - touchStartPosition.x);
+            const deltaY = Math.abs(currentTouch.clientY - touchStartPosition.y);
+            
+            if (deltaX > 10 || deltaY > 10) {
+                touchMoved = true;
+            }
+        } else {
+            touchMoved = true;
+        }
         
         const currentTouches = Array.from(e.touches);
         
@@ -811,20 +829,22 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
     
     function handleTouchEnd(e) {
         e.preventDefault();
+        e.stopPropagation();
         
         const touchDuration = Date.now() - touchStartTime;
         
         // If all touches are gone, end interaction
         if (e.touches.length === 0) {
-            // Check if this was a tap gesture (short duration, no movement)
-            if (!touchMoved && touchDuration < 300 && startTouches.length === 1) {
-                // This was a tap - cycle fill mode
-                setTimeout(() => cycleFillMode(cellIndex), 10); // Small delay to ensure click doesn't fire
+            // Check if this was a tap gesture (short duration, minimal movement, single finger)
+            if (!touchMoved && touchDuration < 500 && startTouches.length === 1) {
+                // This was a tap - cycle fill mode directly (no setTimeout needed)
+                cycleFillMode(cellIndex);
             }
             
             isInteracting = false;
             startTouches = [];
             touchMoved = false;
+            touchStartPosition = null;
         } else if (e.touches.length < startTouches.length) {
             // Some touches lifted, update the remaining touches as new start
             startTouches = Array.from(e.touches).map(touch => ({
@@ -834,6 +854,16 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
             }));
             startTransform = { ...cellData.transform };
             touchMoved = false; // Reset for the new gesture
+            
+            // Update touch start position for single finger gestures
+            if (startTouches.length === 1) {
+                touchStartPosition = {
+                    x: startTouches[0].x,
+                    y: startTouches[0].y
+                };
+            } else {
+                touchStartPosition = null;
+            }
         }
     }
     
