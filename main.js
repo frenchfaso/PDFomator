@@ -580,58 +580,143 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
         let isInteracting = false;
         let startTouches = [];
         let startTransform = { ...cellData.transform };
+        let touchStartTime = 0;
+        let touchMoved = false;
         
-        // Prevent default image click behavior when in interactive mode
-        let lastTouchEnd = 0;
+        // Handle tap gestures for fill mode cycling
         imageEl.addEventListener('click', (e) => {
             e.stopPropagation();
-            // Prevent click events that are triggered by touch on mobile
-            const now = Date.now();
-            if (now - lastTouchEnd < 300) {
-                return; // Ignore click if it's within 300ms of a touch end (likely a touch-generated click)
-            }
             if (!isInteracting) {
-                // Single tap - cycle fill mode
                 cycleFillMode(cellIndex);
             }
-        });
-        
-        // Track touch end for click prevention
-        imageEl.addEventListener('touchend', () => {
-            lastTouchEnd = Date.now();
         });
         
         // Mouse events for desktop
         imageEl.addEventListener('mousedown', startInteraction);
         imageEl.addEventListener('wheel', handleWheel, { passive: false });
         
-        // Touch events for mobile
-        imageEl.addEventListener('touchstart', startInteraction, { passive: false });
+        // Touch events for mobile with better handling
+        imageEl.addEventListener('touchstart', handleTouchStart, { passive: false });
+        imageEl.addEventListener('touchmove', handleTouchMove, { passive: false });
+        imageEl.addEventListener('touchend', handleTouchEnd, { passive: false });
+        imageEl.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+    
+    function handleTouchStart(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        isInteracting = true;
+        touchStartTime = Date.now();
+        touchMoved = false;
+        
+        startTouches = Array.from(e.touches).map(touch => ({
+            x: touch.clientX,
+            y: touch.clientY,
+            identifier: touch.identifier
+        }));
+        
+        // Capture the current transform state at the start of interaction
+        startTransform = { ...cellData.transform };
+    }
+    
+    function handleTouchMove(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        if (!isInteracting) return;
+        
+        // Mark that touch has moved (not a tap)
+        touchMoved = true;
+        
+        const currentTouches = Array.from(e.touches);
+        
+        if (currentTouches.length === 1 && startTouches.length === 1) {
+            // Single finger pan
+            const startTouch = startTouches[0];
+            const currentTouch = currentTouches.find(touch => touch.identifier === startTouch.identifier) || currentTouches[0];
+            
+            const deltaX = currentTouch.clientX - startTouch.x;
+            const deltaY = currentTouch.clientY - startTouch.y;
+            
+            updateTransform(deltaX, deltaY, 1);
+            
+        } else if (currentTouches.length === 2 && startTouches.length >= 1) {
+            // Two finger pinch-to-zoom
+            if (startTouches.length === 1) {
+                // We started with one finger, now have two - update start touches
+                startTouches = Array.from(e.touches).map(touch => ({
+                    x: touch.clientX,
+                    y: touch.clientY,
+                    identifier: touch.identifier
+                }));
+                startTransform = { ...cellData.transform };
+                return;
+            }
+            
+            // Match touches by identifier
+            const currentTouch1 = currentTouches.find(touch => touch.identifier === startTouches[0].identifier);
+            const currentTouch2 = currentTouches.find(touch => touch.identifier === startTouches[1].identifier);
+            
+            if (currentTouch1 && currentTouch2 && startTouches.length >= 2) {
+                const startDistance = getDistance(startTouches[0], startTouches[1]);
+                const currentDistance = getDistance(
+                    { x: currentTouch1.clientX, y: currentTouch1.clientY },
+                    { x: currentTouch2.clientX, y: currentTouch2.clientY }
+                );
+                const scaleChange = currentDistance / startDistance;
+                
+                // Get center point of the gesture
+                const startCenter = getCenter(startTouches[0], startTouches[1]);
+                const currentCenter = getCenter(
+                    { x: currentTouch1.clientX, y: currentTouch1.clientY },
+                    { x: currentTouch2.clientX, y: currentTouch2.clientY }
+                );
+                const deltaX = currentCenter.x - startCenter.x;
+                const deltaY = currentCenter.y - startCenter.y;
+                
+                updateTransform(deltaX, deltaY, scaleChange);
+            }
+        }
+    }
+    
+    function handleTouchEnd(e) {
+        e.preventDefault();
+        
+        const touchDuration = Date.now() - touchStartTime;
+        
+        // If all touches are gone, end interaction
+        if (e.touches.length === 0) {
+            // Check if this was a tap gesture (short duration, no movement)
+            if (!touchMoved && touchDuration < 300 && startTouches.length === 1) {
+                // This was a tap - cycle fill mode
+                setTimeout(() => cycleFillMode(cellIndex), 10); // Small delay to ensure click doesn't fire
+            }
+            
+            isInteracting = false;
+            startTouches = [];
+            touchMoved = false;
+        } else if (e.touches.length < startTouches.length) {
+            // Some touches lifted, update the remaining touches as new start
+            startTouches = Array.from(e.touches).map(touch => ({
+                x: touch.clientX,
+                y: touch.clientY,
+                identifier: touch.identifier
+            }));
+            startTransform = { ...cellData.transform };
+            touchMoved = false; // Reset for the new gesture
+        }
+    }
     
     function startInteraction(e) {
         e.preventDefault();
         e.stopPropagation();
         
         isInteracting = true;
-        
-        if (e.type === 'touchstart') {
-            startTouches = Array.from(e.touches).map(touch => ({
-                x: touch.clientX,
-                y: touch.clientY,
-                identifier: touch.identifier
-            }));
-            
-            document.addEventListener('touchmove', handleTouchMove, { passive: false });
-            document.addEventListener('touchend', endInteraction);
-            document.addEventListener('touchcancel', endInteraction);
-        } else {
-            startTouches = [{ x: e.clientX, y: e.clientY }];
-            
-            document.addEventListener('mousemove', handleMouseMove);
-            document.addEventListener('mouseup', endInteraction);
-        }
-        
+        startTouches = [{ x: e.clientX, y: e.clientY }];
         startTransform = { ...cellData.transform };
+        
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', endInteraction);
     }
     
     function handleMouseMove(e) {
@@ -643,52 +728,12 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
         updateTransform(deltaX, deltaY, 1);
     }
     
-    function handleTouchMove(e) {
-        e.preventDefault();
+    function endInteraction() {
+        isInteracting = false;
+        startTouches = [];
         
-        if (!isInteracting) return;
-        
-        const currentTouches = Array.from(e.touches);
-        
-        if (currentTouches.length === 1 && startTouches.length === 1) {
-            // Single finger pan - find the matching touch by identifier
-            const startTouch = startTouches[0];
-            const currentTouch = currentTouches.find(touch => touch.identifier === startTouch.identifier) || currentTouches[0];
-            
-            const deltaX = currentTouch.clientX - startTouch.x;
-            const deltaY = currentTouch.clientY - startTouch.y;
-            
-            updateTransform(deltaX, deltaY, 1);
-            
-        } else if (currentTouches.length === 2 && startTouches.length === 2) {
-            // Two finger pinch-to-zoom - match touches by identifier
-            const currentTouch1 = currentTouches.find(touch => touch.identifier === startTouches[0].identifier);
-            const currentTouch2 = currentTouches.find(touch => touch.identifier === startTouches[1].identifier);
-            
-            // If we can't find both matching touches, fall back to array order
-            const touch1 = currentTouch1 || currentTouches[0];
-            const touch2 = currentTouch2 || currentTouches[1];
-            
-            if (touch1 && touch2) {
-                const startDistance = getDistance(startTouches[0], startTouches[1]);
-                const currentDistance = getDistance(
-                    { x: touch1.clientX, y: touch1.clientY },
-                    { x: touch2.clientX, y: touch2.clientY }
-                );
-                const scaleChange = currentDistance / startDistance;
-                
-                // Get center point of the gesture
-                const startCenter = getCenter(startTouches[0], startTouches[1]);
-                const currentCenter = getCenter(
-                    { x: touch1.clientX, y: touch1.clientY },
-                    { x: touch2.clientX, y: touch2.clientY }
-                );
-                const deltaX = currentCenter.x - startCenter.x;
-                const deltaY = currentCenter.y - startCenter.y;
-                
-                updateTransform(deltaX, deltaY, scaleChange);
-            }
-        }
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', endInteraction);
     }
     
     function handleWheel(e) {
@@ -699,9 +744,7 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
         const currentScale = cellData.transform.scale;
         const newScale = Math.max(0.5, Math.min(3, currentScale * scaleChange));
         
-        // Apply scale change while keeping current position
         cellData.transform.scale = newScale;
-        
         renderSVGSheet();
     }
     
@@ -709,20 +752,17 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
         try {
             // Convert screen coordinates to SVG coordinates
             const svg = elements.sheet.querySelector('svg');
-            if (!svg) {
-                return;
-            }
+            if (!svg) return;
             
             const rect = svg.getBoundingClientRect();
             const svgDeltaX = (deltaX / rect.width) * layoutState.sheet.width;
             const svgDeltaY = (deltaY / rect.height) * layoutState.sheet.height;
             
-            // Apply transform with constraints
+            // For smooth scaling, use the start transform scale as base
             const newScale = Math.max(0.5, Math.min(3, startTransform.scale * scaleChange));
             const newTranslateX = startTransform.translateX + svgDeltaX;
             const newTranslateY = startTransform.translateY + svgDeltaY;
             
-            // No translation limits - user can move image completely out of frame
             cellData.transform = {
                 scale: newScale,
                 translateX: newTranslateX,
@@ -733,23 +773,6 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
         } catch (error) {
             console.error('Cover mode: Error updating transform', error);
         }
-    }
-    
-    function endInteraction() {
-        isInteracting = false;
-        startTouches = [];
-        
-        // Remove event listeners
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', endInteraction);
-        document.removeEventListener('touchmove', handleTouchMove);
-        document.removeEventListener('touchend', endInteraction);
-        document.removeEventListener('touchcancel', endInteraction);
-        
-        // Allow click again after a brief delay
-        setTimeout(() => {
-            isInteracting = false;
-        }, 100);
     }
     
     function getDistance(touch1, touch2) {
