@@ -1,7 +1,7 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
-        <meta charset="UTF-8">
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob:; connect-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net blob:;">
     <title>PDFomator</title>
@@ -31,19 +31,21 @@
             <div id="sheet" class="sheet a4-portrait"></div>
         </main>
         
-        <!-- Bottom FABs -->
-        <div class="fab-container">
-            <button id="sizeBtn" class="fab" aria-label="Change Paper Size">
-                <span>📄</span>
-            </button>
-            
-            <button id="gridBtn" class="fab" aria-label="Select Grid Layout">
-                <span>🔲</span>
-            </button>
-            
-            <button id="exportBtn" class="fab" aria-label="Export PDF">
-                <span>⬇️</span>
-            </button>
+        <!-- Bottom FABs Container -->
+        <div class="fab-section">
+            <div class="fab-container">
+                <button id="sizeBtn" class="fab" aria-label="Change Paper Size">
+                    <span>📄</span>
+                </button>
+                
+                <button id="gridBtn" class="fab" aria-label="Select Grid Layout">
+                    <span>🔲</span>
+                </button>
+                
+                <button id="exportBtn" class="fab" aria-label="Export PDF">
+                    <span>⬇️</span>
+                </button>
+            </div>
         </div>
     </div>
     

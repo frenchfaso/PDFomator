@@ -21,6 +21,15 @@
 /* Reset and base layout */
 * { box-sizing: border-box; }
 
+/* Force light theme - override Pico CSS auto theme detection */
+:root:not([data-theme="dark"]) {
+    --pico-color-scheme: light;
+}
+
+[data-theme="light"] {
+    --pico-color-scheme: light !important;
+}
+
 body {
     margin: 0;
     padding: 0;
@@ -41,18 +50,28 @@ body {
 /* Header */
 .header {
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
     align-items: center;
-    padding: 1rem;
-    background: var(--pico-background-color);
-    border-bottom: 1px solid var(--pico-muted-border-color);
+    padding: 1.5rem 1rem;
+    background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+    border-bottom: 1px solid #e9ecef;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     z-index: 10;
+    position: relative;
+    flex-shrink: 0;
 }
 
 .header h1 {
     margin: 0;
-    font-size: 1.5rem;
-    color: var(--pico-color);
+    font-size: 1.8rem;
+    font-weight: 600;
+    color: #2c3e50;
+    letter-spacing: -0.02em;
+    text-align: center;
+    background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
 
 /* Main content */
@@ -63,6 +82,15 @@ body {
     align-items: center;
     padding: 1rem;
     overflow: auto;
+}
+
+/* FAB section */
+.fab-section {
+    flex-shrink: 0;
+    padding: 1rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
 /* Sheet container */
@@ -128,10 +156,6 @@ body {
 .fab:active { transform: scale(0.95); }
 
 .fab-container {
-    position: fixed;
-    bottom: 2rem;
-    left: 50%;
-    transform: translateX(-50%);
     display: flex;
     gap: 1rem;
     z-index: 20;
