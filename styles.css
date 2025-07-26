@@ -1,12 +1,10 @@
-/* Custom variables for theming */
+/* PDFomator - Minimal CSS */
 :root {
     --fab-size: 56px;
     --fab-bg: #007acc;
     --fab-hover: #005fa3;
     --border-radius: 8px;
     --border-radius-small: 4px;
-    
-    /* Utility variables */
     --primary-blue: #2196f3;
     --primary-blue-light: #e3f2fd;
     --primary-blue-dark: #1976d2;
@@ -18,13 +16,10 @@
     --shadow-fab: 0 4px 12px rgba(0, 0, 0, 0.2);
     --shadow-fab-hover: 0 6px 16px rgba(0, 0, 0, 0.3);
     --backdrop-blur: blur(4px);
-    --transition-base: all 0.2s ease;
 }
 
 /* Reset and base layout */
-* {
-    box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 body {
     margin: 0;
@@ -35,7 +30,7 @@ body {
     font-family: var(--pico-font-family);
 }
 
-/* App container - full height flex layout */
+/* App container */
 .app-container {
     display: flex;
     flex-direction: column;
@@ -60,7 +55,7 @@ body {
     color: var(--pico-color);
 }
 
-/* Main content area */
+/* Main content */
 .main-content {
     flex: 1;
     display: flex;
@@ -70,49 +65,42 @@ body {
     overflow: auto;
 }
 
-/* Sheet container - unified responsive approach */
+/* Sheet container */
 .sheet {
     background: white;
     border: 1px solid #ddd;
     border-radius: var(--border-radius-small);
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     margin: 0 auto;
-    
-    /* Unified size constraints for all devices */
     max-width: 95vw;
     max-height: 75vh;
-    
-    /* SVG container - no padding needed since SVG handles all layout */
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
-/* A4 Portrait: 210mm × 297mm */
+/* Paper size classes */
 .sheet.a4-portrait {
     width: min(95vw, 75vh * 210 / 297);
     height: min(75vh, 95vw * 297 / 210);
 }
 
-/* A4 Landscape: 297mm × 210mm */
 .sheet.a4-landscape {
     width: min(95vw, 75vh * 297 / 210);
     height: min(75vh, 95vw * 210 / 297);
 }
 
-/* A3 Portrait: 297mm × 420mm */
 .sheet.a3-portrait {
     width: min(95vw, 75vh * 297 / 420);
     height: min(75vh, 95vw * 420 / 297);
 }
 
-/* A3 Landscape: 420mm × 297mm */
 .sheet.a3-landscape {
     width: min(95vw, 75vh * 420 / 297);
     height: min(75vh, 95vw * 297 / 420);
 }
 
-/* Floating Action Buttons */
+/* FAB buttons */
 .fab {
     width: var(--fab-size);
     height: var(--fab-size);
@@ -137,11 +125,8 @@ body {
     box-shadow: var(--shadow-fab-hover);
 }
 
-.fab:active {
-    transform: scale(0.95);
-}
+.fab:active { transform: scale(0.95); }
 
-/* Bottom FABs container */
 .fab-container {
     position: fixed;
     bottom: 2rem;
@@ -152,8 +137,8 @@ body {
     z-index: 20;
 }
 
-/* Grid picker overlay */
-.grid-overlay {
+/* Overlay base styles */
+.grid-overlay, .size-overlay, .file-type-overlay, .page-selector-overlay {
     position: fixed;
     top: 0;
     left: 0;
@@ -167,15 +152,20 @@ body {
     z-index: 1000;
 }
 
-.grid-picker {
+/* Picker containers */
+.grid-picker, .size-picker, .file-type-picker, .page-selector {
     background: white;
     padding: 2rem;
     border-radius: var(--border-radius);
     box-shadow: var(--shadow-overlay);
     text-align: center;
     min-width: 300px;
+    max-width: 90vw;
+    max-height: 90vh;
+    overflow-y: auto;
 }
 
+/* Grid picker */
 .grid-matrix {
     display: grid;
     grid-template-columns: repeat(5, 40px);
@@ -191,55 +181,10 @@ body {
     border-radius: var(--border-radius);
     padding: 8px;
     cursor: pointer;
-    transition: var(--transition-base);
-}
-
-.grid-cell:hover,
-.grid-cell.highlighted {
-    background: var(--primary-blue-light);
-    border-color: var(--primary-blue);
-}
-
-/* Common interactive elements */
-.btn-cancel {
-    margin-top: 1rem;
-    background: var(--gray-medium);
-    color: white;
-    border: none;
-    padding: 0.5rem 1rem;
-    border-radius: var(--border-radius-small);
-    cursor: pointer;
-    transition: background-color 0.2s ease;
-}
-
-.btn-cancel:hover {
-    background: var(--gray-dark);
-}
-
-.btn-secondary {
-    background: var(--pico-muted-border-color);
-    color: var(--pico-color);
-    border: none;
-    padding: 0.75rem 1.5rem;
-    border-radius: var(--border-radius);
-    cursor: pointer;
     transition: all 0.2s ease;
 }
 
-.btn-secondary:hover {
-    background: var(--pico-secondary-background);
-}
-
-.interactive-card {
-    background: var(--gray-light);
-    border: 2px solid var(--gray-border);
-    border-radius: var(--border-radius);
-    padding: 1rem;
-    cursor: pointer;
-    transition: var(--transition-base);
-}
-
-.interactive-card:hover {
+.grid-cell:hover, .grid-cell.highlighted {
     background: var(--primary-blue-light);
     border-color: var(--primary-blue);
 }
@@ -249,30 +194,7 @@ body {
     color: var(--primary-blue-dark);
 }
 
-/* Size picker overlay */
-.size-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0,0,0,0.5);
-    backdrop-filter: var(--backdrop-blur);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-}
-
-.size-picker {
-    background: white;
-    padding: 2rem;
-    border-radius: var(--border-radius);
-    box-shadow: var(--shadow-overlay);
-    text-align: center;
-    min-width: 300px;
-}
-
+/* Size picker */
 .size-options {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
@@ -300,42 +222,17 @@ body {
     position: relative;
 }
 
-.size-preview.a4-portrait,
-.size-preview.a3-portrait {
+.size-preview.a4-portrait, .size-preview.a3-portrait {
     width: 42px;
     height: 60px;
 }
 
-.size-preview.a4-landscape,
-.size-preview.a3-landscape {
+.size-preview.a4-landscape, .size-preview.a3-landscape {
     width: 60px;
     height: 42px;
 }
 
-/* File type selector overlay */
-.file-type-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0,0,0,0.5);
-    backdrop-filter: blur(4px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-}
-
-.file-type-picker {
-    background: white;
-    padding: 2rem;
-    border-radius: var(--border-radius);
-    box-shadow: var(--shadow-overlay);
-    min-width: 300px;
-    text-align: center;
-}
-
+/* File type picker */
 .file-type-buttons {
     display: flex;
     flex-direction: column;
@@ -355,38 +252,7 @@ body {
     font-size: 1.5rem;
 }
 
-/* PDF Page Selector Overlay */
-.page-selector-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0,0,0,0.5);
-    backdrop-filter: blur(4px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-}
-
-.page-selector {
-    background: white;
-    padding: 2rem;
-    border-radius: 8px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-    min-width: 400px;
-    max-width: 90vw;
-    max-height: 90vh;
-    overflow-y: auto;
-    text-align: center;
-}
-
-.page-selector h3 {
-    margin-top: 0;
-    margin-bottom: 1.5rem;
-}
-
+/* Page selector */
 .page-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
@@ -426,8 +292,34 @@ body {
     font-weight: bold;
 }
 
-.page-selector-actions {
+/* Interactive elements */
+.interactive-card {
+    background: var(--gray-light);
+    border: 2px solid var(--gray-border);
+    border-radius: var(--border-radius);
+    padding: 1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.interactive-card:hover {
+    background: var(--primary-blue-light);
+    border-color: var(--primary-blue);
+}
+
+.btn-cancel {
     margin-top: 1rem;
+    background: var(--gray-medium);
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: var(--border-radius-small);
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.btn-cancel:hover {
+    background: var(--gray-dark);
 }
 
 /* Loading indicator */
@@ -462,11 +354,9 @@ body {
 }
 
 /* Utility classes */
-.hidden {
-    display: none !important;
-}
+.hidden { display: none !important; }
 
-/* Responsive adjustments - essential only */
+/* Mobile responsive */
 @media (max-width: 768px) {
     .header {
         padding: 0.75rem;
@@ -491,72 +381,34 @@ body {
         font-size: 1rem;
     }
     
-    .grid-picker, .size-picker {
+    .grid-picker, .size-picker, .file-type-picker, .page-selector {
         padding: 1.5rem;
         margin: 1rem;
         min-width: auto;
     }
     
     .size-options {
-        display: grid;
         grid-template-columns: 1fr;
         gap: 0.75rem;
-    }
-    
-    .size-option {
-        padding: 0.75rem;
     }
     
     .size-preview {
         width: 50px !important;
         height: 50px !important;
-        background: white;
-        border: 2px solid var(--gray-border);
-        border-radius: var(--border-radius-small);
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         margin-bottom: 0.5rem;
-        position: relative;
     }
     
-    .size-preview.a4-portrait,
-    .size-preview.a3-portrait {
+    .size-preview.a4-portrait, .size-preview.a3-portrait {
         width: 35px !important;
         height: 50px !important;
     }
 
-    .size-preview.a4-landscape,
-    .size-preview.a3-landscape {
+    .size-preview.a4-landscape, .size-preview.a3-landscape {
         width: 50px !important;
         height: 35px !important;
-    }
-    
-    .file-type-picker {
-        padding: 1.5rem;
-        margin: 1rem;
-        min-width: auto;
-    }
-    
-    .file-type-buttons {
-        gap: 0.75rem;
-    }
-    
-    .file-type-btn {
-        min-width: auto;
-        padding: 0.75rem;
-    }
-    
-    .page-selector {
-        padding: 1.5rem;
-        margin: 1rem;
-        min-width: auto;
     }
     
     .page-grid {
         grid-template-columns: 1fr;
     }
-}
-
-/* Dark mode support */
-@media (prefers-color-scheme: dark) {
-    /* Dark mode variables can be added here if needed */
 }
