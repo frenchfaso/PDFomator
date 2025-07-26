@@ -23,17 +23,19 @@ const CONFIG = {
         A3: { width: 297, height: 420 }
     },
     maxGridSize: 5,
-    pdfWorkerUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+    pdfWorkerUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.worker.mjs'
 };
 
 // Overlay management utilities
 const overlayManager = {
     show(element, onShow = null) {
+        if (!element) return; // Safety check
         element.classList.remove('hidden');
         if (onShow) onShow();
     },
     
     hide(element, onHide = null) {
+        if (!element) return; // Safety check
         element.classList.add('hidden');
         if (onHide) onHide();
     },
@@ -53,6 +55,7 @@ let elements = {};
 let currentTargetCell = null; // Track which cell is being filled
 
 // Initialize the application
+// Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', init);
 
 // Global error boundary
@@ -127,15 +130,43 @@ function cacheElements() {
     };
 }
 
+function showError(message) {
+    console.error('Error:', message);
+    alert(`PDFomator Error: ${message}`);
+}
+
 async function setupPDFWorker() {
     try {
-        // PDF.js is loaded globally from the script tag
-        if (typeof pdfjsLib !== 'undefined') {
-            pdfjsLib.GlobalWorkerOptions.workerSrc = CONFIG.pdfWorkerUrl;
-            console.log('PDF.js worker configured');
+        // Wait for PDF.js to be loaded with more sophisticated checking
+        let attempts = 0;
+        const maxAttempts = 100; // 10 seconds max wait
+        
+        while (attempts < maxAttempts) {
+            // Check if pdfjsLib is available and has the required methods
+            // Also check for window.pdfjsLib as it might be attached to window with ES modules
+            const lib = window.pdfjsLib || pdfjsLib;
+            if (typeof lib !== 'undefined' && lib.getDocument && lib.GlobalWorkerOptions) {
+                // Assign to global for consistency
+                window.pdfjsLib = lib;
+                break;
+            }
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
         }
+        
+        const lib = window.pdfjsLib || pdfjsLib;
+        if (typeof lib === 'undefined' || !lib.getDocument) {
+            throw new Error('PDF.js failed to load completely. Please check your internet connection and refresh the page.');
+        }
+        
+        // Configure PDF.js worker
+        lib.GlobalWorkerOptions.workerSrc = CONFIG.pdfWorkerUrl;
+        console.log('PDF.js worker configured successfully');
+        
     } catch (error) {
-        console.warn('PDF.js not available:', error);
+        console.error('PDF.js setup failed:', error);
+        // Show user-friendly error
+        showError('PDF processing library failed to load. Please check your internet connection and refresh the page.');
     }
 }
 
@@ -151,12 +182,10 @@ function setupEventListeners() {
     
     // File type selector handlers
     elements.selectPdfBtn.addEventListener('click', () => {
-        console.log('PDF button clicked, currentTargetCell:', currentTargetCell);
         hideFileTypeSelector();
         elements.pdfInput.click();
     });
     elements.selectImageBtn.addEventListener('click', () => {
-        console.log('Image button clicked, currentTargetCell:', currentTargetCell);
         hideFileTypeSelector();
         elements.imageInput.click();
     });
@@ -207,9 +236,7 @@ function handleSizePicker() {
 }
 
 function handleCellAdd(cellIndex) {
-    console.log('handleCellAdd called with cellIndex:', cellIndex);
     currentTargetCell = cellIndex;
-    console.log('currentTargetCell set to:', currentTargetCell);
     showFileTypeSelector();
 }
 
@@ -223,10 +250,12 @@ async function handleExport() {
         return;
     }
     
-    showLoading('Creating PDF...');
+    showLoading('Preparing export...');
     
     try {
-        await exportToPDF();
+        // TODO: Implement new export functionality
+        console.log('Export functionality will be implemented here');
+        alert('Export functionality will be implemented soon!');
     } catch (error) {
         console.error('Export failed:', error);
         alert('Export failed. Please try again.');
@@ -237,70 +266,65 @@ async function handleExport() {
 
 async function handlePDFSelection(e) {
     const files = Array.from(e.target.files);
-    if (files.length === 0 || currentTargetCell === null) return;
+    const targetCell = currentTargetCell; // Store target cell to prevent race conditions
+    
+    if (files.length === 0 || targetCell === null) return;
     
     const file = files[0]; // Single file selection
     showLoading('Processing PDF...');
     
     try {
-        await processPDFFileForCell(file, currentTargetCell);
+        await processPDFFileForCell(file, targetCell);
     } catch (error) {
         console.error('PDF processing failed:', error);
         alert('Failed to process PDF. Please try again.');
     } finally {
         hideLoading();
         elements.pdfInput.value = '';
-        currentTargetCell = null;
+        // Only clear currentTargetCell if it still matches our stored value
+        if (currentTargetCell === targetCell) {
+            currentTargetCell = null;
+        }
     }
 }
 
 async function handleImageSelection(e) {
-    console.log('handleImageSelection called', {
-        filesCount: e.target.files.length,
-        currentTargetCell,
-        files: Array.from(e.target.files)
-    });
-    
     const files = Array.from(e.target.files);
-    if (files.length === 0) {
-        console.log('No files selected');
-        return;
-    }
+    const targetCell = currentTargetCell; // Store target cell to prevent race conditions
     
-    if (currentTargetCell === null) {
-        console.log('No target cell set');
-        return;
-    }
+    if (files.length === 0 || targetCell === null) return;
     
     const file = files[0]; // Single file selection
-    console.log('Processing file:', file.name, file.type);
     showLoading('Processing image...');
     
     try {
-        await processImageFileForCell(file, currentTargetCell);
-        console.log('Image processing completed successfully');
+        await processImageFileForCell(file, targetCell);
     } catch (error) {
         console.error('Image processing failed:', error);
         alert('Failed to process image. Please try again.');
     } finally {
         hideLoading();
         elements.imageInput.value = '';
-        currentTargetCell = null;
+        // Only clear currentTargetCell if it still matches our stored value
+        if (currentTargetCell === targetCell) {
+            currentTargetCell = null;
+        }
     }
 }
 
 async function processPDFFileForCell(file, cellIndex) {
-    if (typeof pdfjsLib === 'undefined') {
-        throw new Error('PDF.js not available');
+    const lib = window.pdfjsLib || pdfjsLib;
+    if (typeof lib === 'undefined' || !lib.getDocument) {
+        throw new Error('PDF.js library not loaded. Please refresh the page and try again.');
     }
     
     const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+    const pdf = await lib.getDocument(arrayBuffer).promise;
     
     if (pdf.numPages === 1) {
         // Single page - process directly
         const page = await pdf.getPage(1);
-        const bitmap = await renderPDFPageToBitmap(page);
+        const bitmap = await renderPDFPage(page, 2, 'bitmap');
         addToSpecificCell(bitmap, `${file.name} p1`, cellIndex);
     } else {
         // Multiple pages - show page selector
@@ -309,43 +333,49 @@ async function processPDFFileForCell(file, cellIndex) {
 }
 
 async function processImageFileForCell(file, cellIndex) {
-    console.log('processImageFileForCell called:', {
-        fileName: file.name,
-        fileType: file.type,
-        fileSize: file.size,
-        cellIndex
-    });
-    
     return new Promise((resolve, reject) => {
-        const img = new Image();
-        const objectUrl = URL.createObjectURL(file);
-        
-        console.log('Created object URL:', objectUrl);
-        
-        img.onload = () => {
-            console.log('Image loaded successfully:', {
-                naturalWidth: img.naturalWidth,
-                naturalHeight: img.naturalHeight
+        // Use createImageBitmap for direct file-to-canvas rendering
+        createImageBitmap(file)
+            .then(bitmap => {
+                try {
+                    // Create canvas and draw bitmap directly
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    canvas.width = bitmap.width;
+                    canvas.height = bitmap.height;
+                    
+                    // Draw the bitmap onto the canvas
+                    ctx.drawImage(bitmap, 0, 0);
+                    
+                    // Convert to data URL (JPEG with high quality for good compression)
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+                    
+                    // Create a new image with the data URL
+                    const persistentImg = new Image();
+                    persistentImg.onload = () => {
+                        // Add the image with persistent data URL after it loads
+                        addToSpecificCell(persistentImg, file.name, cellIndex);
+                        resolve();
+                    };
+                    persistentImg.onerror = () => {
+                        reject(new Error('Failed to create persistent image'));
+                    };
+                    persistentImg.src = dataUrl;
+                    
+                    // Clean up the bitmap
+                    bitmap.close();
+                    
+                } catch (error) {
+                    console.error('Error adding image to cell:', error);
+                    bitmap.close(); // Clean up memory on error
+                    reject(new Error('Failed to add image to cell'));
+                }
+            })
+            .catch(error => {
+                console.error('Failed to create image bitmap:', error);
+                reject(new Error('Failed to load image file'));
             });
-            
-            // Use the image directly instead of converting to bitmap
-            // This preserves the original quality and format
-            addToSpecificCell(img, file.name, cellIndex);
-            console.log('Added to cell:', cellIndex);
-            
-            // Don't revoke the URL immediately since the img element needs it
-            // The browser will clean it up when the img is garbage collected
-            resolve();
-        };
-        
-        img.onerror = (error) => {
-            console.error('Image loading failed:', error);
-            URL.revokeObjectURL(objectUrl); // Clean up memory on error
-            reject(new Error('Failed to load image'));
-        };
-        
-        img.src = objectUrl;
-        console.log('Set image src to object URL');
     });
 }
 
@@ -365,7 +395,7 @@ async function renderPDFPage(page, scale = 2, outputFormat = 'canvas') {
     
     if (outputFormat === 'bitmap') {
         // Convert to JPEG bitmap
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
         const bitmap = new Image();
         bitmap.src = dataUrl;
         return bitmap;
@@ -374,147 +404,162 @@ async function renderPDFPage(page, scale = 2, outputFormat = 'canvas') {
     return canvas;
 }
 
-async function renderPDFPageToBitmap(page, quality = 0.9) {
-    return await renderPDFPage(page, 2, 'bitmap');
-}
-
-async function renderPDFPageToCanvas(page, scale = 2) {
-    return await renderPDFPage(page, scale, 'canvas');
-}
-
 async function showPDFPageSelector(pdf, fileName, cellIndex) {
     const pageGrid = elements.pageGrid;
     pageGrid.innerHTML = '';
     
-    // Render thumbnails for all pages
-    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-        const page = await pdf.getPage(pageNum);
-        const thumbnail = await renderPDFPageToCanvas(page, 0.5); // Smaller scale for thumbnails
-        
-        const pageDiv = document.createElement('div');
-        pageDiv.className = 'page-thumbnail';
-        pageDiv.dataset.pageNum = pageNum;
-        
-        const label = document.createElement('div');
-        label.className = 'page-label';
-        label.textContent = `Page ${pageNum}`;
-        
-        pageDiv.appendChild(thumbnail);
-        pageDiv.appendChild(label);
-        
-        pageDiv.addEventListener('click', async () => {
-            hidePageSelector();
-            showLoading('Processing selected page...');
-            
-            try {
-                const selectedPage = await pdf.getPage(pageNum);
-                const bitmap = await renderPDFPageToBitmap(selectedPage);
-                addToSpecificCell(bitmap, `${fileName} p${pageNum}`, cellIndex);
-            } catch (error) {
-                console.error('Failed to process selected page:', error);
-                alert('Failed to process selected page.');
-            } finally {
-                hideLoading();
-            }
-        });
-        
-        pageGrid.appendChild(pageDiv);
-    }
+    // Hide the initial loading overlay since we're showing the page selector
+    hideLoading();
     
+    // Show the page selector immediately
     showPageSelector();
+    
+    // Track thumbnail generation for cancellation
+    let thumbnailGenerationCanceled = false;
+    
+    // Function to cancel thumbnail generation
+    const cancelThumbnailGeneration = () => {
+        thumbnailGenerationCanceled = true;
+    };
+    
+    // Start the thumbnail generation process
+    generateThumbnailsSequentially(pdf, fileName, cellIndex, pageGrid, cancelThumbnailGeneration, () => thumbnailGenerationCanceled);
+}
+
+async function generateThumbnailsSequentially(pdf, fileName, cellIndex, pageGrid, cancelFunction, isCanceledCheck) {
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        // Check if generation was canceled before processing each page
+        if (isCanceledCheck()) {
+            return; // Exit the loop immediately
+        }
+        
+        try {
+            const page = await pdf.getPage(pageNum);
+            const thumbnail = await renderPDFPage(page, 0.5, 'canvas'); // Smaller scale for thumbnails
+            
+            // Check again after async operations in case user selected during rendering
+            if (isCanceledCheck()) {
+                return;
+            }
+            
+            const pageDiv = document.createElement('div');
+            pageDiv.className = 'page-thumbnail';
+            pageDiv.dataset.pageNum = pageNum;
+            
+            const label = document.createElement('div');
+            label.className = 'page-label';
+            label.textContent = `Page ${pageNum}`;
+            
+            pageDiv.appendChild(thumbnail);
+            pageDiv.appendChild(label);
+            
+            pageDiv.addEventListener('click', () => {
+                // Cancel any ongoing thumbnail generation
+                cancelFunction();
+                
+                hidePageSelector();
+                showLoading('Processing selected page...');
+                
+                // Process the selected page immediately
+                processSelectedPage(pdf, pageNum, fileName, cellIndex);
+            });
+            
+            pageGrid.appendChild(pageDiv);
+            
+            // Check if this is the last page
+            if (pageGrid.children.length === pdf.numPages) {
+                return;
+            }
+            
+        } catch (error) {
+            console.error(`Failed to render page ${pageNum}:`, error);
+            
+            // Check if canceled before creating error placeholder
+            if (isCanceledCheck()) {
+                return;
+            }
+            
+            // Create error placeholder instead of thumbnail
+            const pageDiv = document.createElement('div');
+            pageDiv.className = 'page-thumbnail';
+            pageDiv.dataset.pageNum = pageNum;
+            pageDiv.style.backgroundColor = '#f8f9fa';
+            pageDiv.style.border = '1px solid #dee2e6';
+            pageDiv.style.display = 'flex';
+            pageDiv.style.alignItems = 'center';
+            pageDiv.style.justifyContent = 'center';
+            pageDiv.style.minHeight = '100px';
+            
+            const errorLabel = document.createElement('div');
+            errorLabel.className = 'page-label';
+            errorLabel.textContent = `Page ${pageNum} (Error)`;
+            errorLabel.style.color = '#dc3545';
+            
+            pageDiv.appendChild(errorLabel);
+            pageGrid.appendChild(pageDiv);
+            
+            // Check if this was the last page (including errors)
+            if (pageGrid.children.length === pdf.numPages) {
+                return;
+            }
+        }
+        
+        // Yield control back to the browser between pages (for responsiveness)
+        await new Promise(resolve => setTimeout(resolve, 0));
+    }
+}
+
+async function processSelectedPage(pdf, pageNum, fileName, cellIndex) {
+    try {
+        const selectedPage = await pdf.getPage(pageNum);
+        const bitmap = await renderPDFPage(selectedPage, 2, 'bitmap');
+        addToSpecificCell(bitmap, `${fileName} p${pageNum}`, cellIndex);
+    } catch (error) {
+        console.error('Failed to process selected page:', error);
+        alert('Failed to process selected page.');
+    } finally {
+        hideLoading();
+    }
 }
 
 function addToSpecificCell(content, title = '', cellIndex) {
-    // Store in state
-    layoutState.cells[cellIndex] = { content, title };
+    // Store image data in new format for SVG compatibility
+    layoutState.cells[cellIndex] = { 
+        image: {
+            src: content.src,
+            width: content.naturalWidth,
+            height: content.naturalHeight
+        },
+        title,
+        fillMode: 'contain' // Default fill mode
+    };
     
-    // Update UI
-    renderCell(cellIndex);
-    
-    console.log(`Added content to cell ${cellIndex}: ${title}`);
-}
-
-function renderCell(cellIndex) {
-    const cellElement = elements.sheet.children[cellIndex];
-    if (!cellElement) {
-        console.log('Cell element not found for index:', cellIndex);
-        return;
-    }
-    
-    const cellData = layoutState.cells[cellIndex];
-    if (!cellData) {
-        // Clear cell and add the add button
-        cellElement.innerHTML = '';
-        cellElement.classList.remove('filled');
-        
-        const addBtn = document.createElement('button');
-        addBtn.className = 'add-btn';
-        addBtn.textContent = '+';
-        addBtn.title = 'Add content to this cell';
-        addBtn.addEventListener('click', () => {
-            console.log('Add button clicked for cell:', cellIndex);
-            handleCellAdd(cellIndex);
-        });
-        cellElement.appendChild(addBtn);
-        
-        console.log(`Rendered empty cell ${cellIndex} with add button`);
-        return;
-    }
-    
-    // Clear existing content
-    cellElement.innerHTML = '';
-    cellElement.classList.add('filled');
-    
-    console.log(`Rendering filled cell ${cellIndex} with content:`, cellData.title);
-    
-    // Add content - always as img node
-    const img = document.createElement('img');
-    img.src = cellData.content.src;
-    img.style.objectFit = cellData.objectFit || 'contain'; // Default to contain
-    img.style.cursor = 'pointer';
-    img.title = `Click to cycle fill mode. Current: ${cellData.objectFit || 'contain'}`;
-    
-    // Add click handler to cycle through object-fit modes
-    img.addEventListener('click', (e) => {
-        e.stopPropagation(); // Prevent cell selection
-        cycleFillMode(cellIndex);
-    });
-    
-    cellElement.appendChild(img);
-    
-    // Add remove button
-    const removeBtn = document.createElement('button');
-    removeBtn.className = 'remove-btn';
-    removeBtn.textContent = '×';
-    removeBtn.title = `Remove ${cellData.title}`;
-    removeBtn.addEventListener('click', () => removeCellContent(cellIndex));
-    cellElement.appendChild(removeBtn);
+    // Re-render entire SVG sheet
+    renderSVGSheet();
 }
 
 function removeCellContent(cellIndex) {
     layoutState.cells[cellIndex] = null;
-    renderCell(cellIndex);
-    console.log(`Removed content from cell ${cellIndex}`);
+    // Re-render entire SVG sheet
+    renderSVGSheet();
 }
 
 function cycleFillMode(cellIndex) {
     const cellData = layoutState.cells[cellIndex];
     if (!cellData) return;
     
-    // CSS object-fit values to cycle through
+    // Fill mode values to cycle through
     const fillModes = ['contain', 'cover', 'fill', 'scale-down', 'none'];
-    const currentMode = cellData.objectFit || 'contain';
+    const currentMode = cellData.fillMode || 'contain';
     const currentIndex = fillModes.indexOf(currentMode);
     const nextIndex = (currentIndex + 1) % fillModes.length;
     const nextMode = fillModes[nextIndex];
     
     // Update state
-    cellData.objectFit = nextMode;
+    cellData.fillMode = nextMode;
     
-    // Re-render cell to apply new fill mode
-    renderCell(cellIndex);
-    
-    console.log(`Cell ${cellIndex} fill mode changed from ${currentMode} to ${nextMode}`);
+    // Re-render entire SVG sheet
+    renderSVGSheet();
 }
 
 function updateSheetSize() {
@@ -533,33 +578,209 @@ function updateSheetSize() {
     // Update CSS classes directly on the sheet element
     elements.sheet.className = `sheet ${paperSize.toLowerCase()}-${orientation}`;
     
-    console.log(`Paper size: ${layoutState.sheet.paperSize} ${layoutState.sheet.orientation}`);
-    console.log(`Dimensions: ${layoutState.sheet.width} × ${layoutState.sheet.height}mm`);
+    // Re-render SVG if it exists
+    if (elements.sheet.querySelector('svg')) {
+        renderSVGSheet();
+    }
+}
+
+// SVG cell rendering function
+function renderSVGCell(cellGroup, cellIndex, cellX, cellY, cellWidth, cellHeight, cellPadding) {
+    const cellData = layoutState.cells[cellIndex];
+    
+    if (cellData?.image) {
+        const imgX = cellX + cellPadding;
+        const imgY = cellY + cellPadding;
+        const imgWidth = cellWidth - (cellPadding * 2);
+        const imgHeight = cellHeight - (cellPadding * 2);
+        
+        // Create clipping path for the cell content area
+        const clipId = `cell-clip-${cellIndex}`;
+        const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+        const clipPath = document.createElementNS('http://www.w3.org/2000/svg', 'clipPath');
+        clipPath.setAttribute('id', clipId);
+        
+        const clipRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        clipRect.setAttribute('x', imgX);
+        clipRect.setAttribute('y', imgY);
+        clipRect.setAttribute('width', imgWidth);
+        clipRect.setAttribute('height', imgHeight);
+        clipPath.appendChild(clipRect);
+        defs.appendChild(clipPath);
+        cellGroup.appendChild(defs);
+        
+        // Calculate image placement based on fill mode
+        const placement = calculateImagePlacement(
+            { width: cellData.image.width, height: cellData.image.height },
+            { width: imgWidth, height: imgHeight },
+            cellData.fillMode
+        );
+        
+        // Create image element
+        const imageEl = document.createElementNS('http://www.w3.org/2000/svg', 'image');
+        imageEl.setAttribute('href', cellData.image.src);
+        imageEl.setAttribute('x', imgX + placement.x);
+        imageEl.setAttribute('y', imgY + placement.y);
+        imageEl.setAttribute('width', placement.width);
+        imageEl.setAttribute('height', placement.height);
+        imageEl.setAttribute('clip-path', `url(#${clipId})`);
+        imageEl.setAttribute('preserveAspectRatio', 'none'); // Direct control via placement calc
+        imageEl.style.cursor = 'pointer';
+        
+        // Add click handler for cycling fill mode
+        imageEl.addEventListener('click', (e) => {
+            e.stopPropagation();
+            cycleFillMode(cellIndex);
+        });
+        
+        cellGroup.appendChild(imageEl);
+        
+        // Add fill mode indicator
+        const indicatorText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        indicatorText.setAttribute('x', cellX + 2);
+        indicatorText.setAttribute('y', cellY + 8);
+        indicatorText.setAttribute('font-family', 'monospace');
+        indicatorText.setAttribute('font-size', '6');
+        indicatorText.setAttribute('fill', '#666');
+        indicatorText.textContent = cellData.fillMode;
+        cellGroup.appendChild(indicatorText);
+        
+        // Add remove button (small circle with X)
+        const removeBtn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        removeBtn.style.cursor = 'pointer';
+        
+        const removeBtnCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        removeBtnCircle.setAttribute('cx', cellX + cellWidth - 8);
+        removeBtnCircle.setAttribute('cy', cellY + 8);
+        removeBtnCircle.setAttribute('r', '6');
+        removeBtnCircle.setAttribute('fill', 'rgba(220, 53, 69, 0.9)');
+        removeBtnCircle.setAttribute('stroke', 'white');
+        removeBtnCircle.setAttribute('stroke-width', '1');
+        
+        const removeBtnText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        removeBtnText.setAttribute('x', cellX + cellWidth - 8);
+        removeBtnText.setAttribute('y', cellY + 8);
+        removeBtnText.setAttribute('text-anchor', 'middle');
+        removeBtnText.setAttribute('dominant-baseline', 'central');
+        removeBtnText.setAttribute('font-family', 'monospace');
+        removeBtnText.setAttribute('font-size', '10');
+        removeBtnText.setAttribute('fill', 'white');
+        removeBtnText.setAttribute('font-weight', 'bold');
+        removeBtnText.textContent = '×';
+        
+        removeBtn.appendChild(removeBtnCircle);
+        removeBtn.appendChild(removeBtnText);
+        
+        // Add click handler for remove button
+        removeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            removeCellContent(cellIndex);
+        });
+        
+        cellGroup.appendChild(removeBtn);
+        
+    } else {
+        // Empty cell - add placeholder text
+        const placeholderText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        placeholderText.setAttribute('x', cellX + cellWidth / 2);
+        placeholderText.setAttribute('y', cellY + cellHeight / 2);
+        placeholderText.setAttribute('text-anchor', 'middle');
+        placeholderText.setAttribute('dominant-baseline', 'central');
+        placeholderText.setAttribute('font-family', 'sans-serif');
+        placeholderText.setAttribute('font-size', '8');
+        placeholderText.setAttribute('fill', '#adb5bd');
+        placeholderText.textContent = 'Click to add image';
+        cellGroup.appendChild(placeholderText);
+    }
+}
+
+// SVG-based sheet rendering function
+function renderSVGSheet() {
+    const { width, height } = layoutState.sheet;
+    const { rows, cols } = layoutState.grid;
+    
+    // Clear the sheet container
+    elements.sheet.innerHTML = '';
+    
+    // Create SVG element with mm dimensions
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', '100%');
+    svg.setAttribute('height', '100%');
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    svg.style.border = '1px solid #ccc';
+    svg.style.background = 'white';
+    
+    // Add sheet background
+    const sheetBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    sheetBg.setAttribute('x', '0');
+    sheetBg.setAttribute('y', '0');
+    sheetBg.setAttribute('width', width);
+    sheetBg.setAttribute('height', height);
+    sheetBg.setAttribute('fill', 'white');
+    sheetBg.setAttribute('stroke', '#ddd');
+    sheetBg.setAttribute('stroke-width', '0.5');
+    svg.appendChild(sheetBg);
+    
+    // Calculate grid spacing in mm (simplified - no CSS dependencies)
+    const gridSpacing = {
+        sheetPadding: { top: 10, right: 10, bottom: 10, left: 10 },
+        columnGap: 5,
+        rowGap: 5,
+        cellPadding: 2
+    };
+    
+    // Calculate available space and cell dimensions
+    const availableWidth = width - gridSpacing.sheetPadding.left - gridSpacing.sheetPadding.right;
+    const availableHeight = height - gridSpacing.sheetPadding.top - gridSpacing.sheetPadding.bottom;
+    const totalGapWidth = gridSpacing.columnGap * (cols - 1);
+    const totalGapHeight = gridSpacing.rowGap * (rows - 1);
+    const cellWidth = (availableWidth - totalGapWidth) / cols;
+    const cellHeight = (availableHeight - totalGapHeight) / rows;
+    
+    // Render each cell
+    const totalCells = rows * cols;
+    for (let i = 0; i < totalCells; i++) {
+        const row = Math.floor(i / cols);
+        const col = i % cols;
+        
+        // Calculate cell position
+        const cellX = gridSpacing.sheetPadding.left + col * (cellWidth + gridSpacing.columnGap);
+        const cellY = gridSpacing.sheetPadding.top + row * (cellHeight + gridSpacing.rowGap);
+        
+        // Create cell group
+        const cellGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        cellGroup.setAttribute('data-cell-index', i);
+        cellGroup.style.cursor = 'pointer';
+        
+        // Cell background
+        const cellRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        cellRect.setAttribute('x', cellX);
+        cellRect.setAttribute('y', cellY);
+        cellRect.setAttribute('width', cellWidth);
+        cellRect.setAttribute('height', cellHeight);
+        cellRect.setAttribute('fill', '#f8f9fa');
+        cellRect.setAttribute('stroke', '#dee2e6');
+        cellRect.setAttribute('stroke-width', '0.5');
+        cellGroup.appendChild(cellRect);
+        
+        // Render cell content
+        renderSVGCell(cellGroup, i, cellX, cellY, cellWidth, cellHeight, gridSpacing.cellPadding);
+        
+        // Add click handler for cell interaction
+        cellGroup.addEventListener('click', () => handleCellAdd(i));
+        
+        svg.appendChild(cellGroup);
+    }
+    
+    elements.sheet.appendChild(svg);
 }
 
 function updateSheetGrid() {
     const { rows, cols } = layoutState.grid;
     
-    // Update CSS Grid
-    elements.sheet.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-    elements.sheet.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
-    
-    // Clear existing cells
-    elements.sheet.innerHTML = '';
-    
-    // Create new cells
-    const totalCells = rows * cols;
-    for (let i = 0; i < totalCells; i++) {
-        const cell = document.createElement('div');
-        cell.className = 'sheet-cell';
-        cell.dataset.cellIndex = i;
-        elements.sheet.appendChild(cell);
-        
-        // Render existing content if any
-        renderCell(i);
-    }
-    
-    console.log(`Grid updated: ${cols} × ${rows} (${totalCells} cells)`);
+    // Create or update SVG sheet preview
+    renderSVGSheet();
 }
 
 function setupGridMatrix() {
@@ -603,17 +824,45 @@ function highlightGridArea(cols, rows) {
 }
 
 function selectGrid(cols, rows) {
+    const currentTotalCells = layoutState.grid.rows * layoutState.grid.cols;
+    const newTotalCells = rows * cols;
+    
+    // Check if we're reducing the grid size and if there's data that would be lost
+    if (newTotalCells < currentTotalCells) {
+        const cellsToRemove = layoutState.cells.slice(newTotalCells);
+        const hasDataInRemovedCells = cellsToRemove.some(cell => cell !== null && cell !== undefined);
+        
+        if (hasDataInRemovedCells) {
+            const lostContentCount = cellsToRemove.filter(cell => cell !== null && cell !== undefined).length;
+            const confirmMessage = 
+                `Warning: Changing to a ${cols} × ${rows} grid will remove ${currentTotalCells - newTotalCells} cells.\n\n` +
+                `This will permanently delete ${lostContentCount} piece(s) of content from your layout.\n\n` +
+                `Are you sure you want to continue?`;
+            
+            const userConfirmed = confirm(confirmMessage);
+            if (!userConfirmed) {
+                console.log('Grid resize cancelled by user to prevent data loss');
+                return; // Don't proceed with grid change
+            }
+            
+            console.log(`User confirmed grid resize with data loss: ${lostContentCount} pieces of content will be removed`);
+        }
+    }
+    
+    // Proceed with grid change
     layoutState.grid.cols = cols;
     layoutState.grid.rows = rows;
     
-    // Clear cells that are outside new grid
+    // Clear cells that are outside new grid (now with user consent)
     const totalCells = rows * cols;
-    layoutState.cells = layoutState.cells.slice(0, totalCells);
+    if (layoutState.cells.length > totalCells) {
+        const removedCells = layoutState.cells.slice(totalCells);
+        layoutState.cells = layoutState.cells.slice(0, totalCells);
+        console.log(`Removed ${removedCells.length} cells from layout due to grid resize`);
+    }
     
     updateSheetGrid();
     hideGridPicker();
-    
-    console.log(`Grid selected: ${cols} × ${rows}`);
 }
 
 function showGridPicker() {
@@ -642,8 +891,6 @@ function setupSizeOptions() {
             // Update UI
             updateSheetSize();
             hideSizePicker();
-            
-            console.log(`Selected: ${size} ${orientation}`);
         });
     });
 }
@@ -699,6 +946,7 @@ function hidePageSelector() {
 }
 
 function showLoading(message = 'Loading...') {
+    if (!elements.loading) return; // Safety check for early calls
     overlayManager.show(elements.loading, () => {
         const loadingText = elements.loading.querySelector('p');
         if (loadingText) loadingText.textContent = message;
@@ -706,182 +954,8 @@ function showLoading(message = 'Loading...') {
 }
 
 function hideLoading() {
+    if (!elements.loading) return; // Safety check for early calls
     overlayManager.hide(elements.loading);
-}
-
-async function exportToPDF() {
-    // Check if jsPDF is available
-    if (typeof window.jspdf === 'undefined') {
-        throw new Error('jsPDF library not loaded');
-    }
-    
-    try {
-        // Create PDF with exact sheet dimensions
-        const { width, height } = layoutState.sheet;
-        const pdf = new window.jspdf.jsPDF({
-            orientation: layoutState.sheet.orientation === 'portrait' ? 'p' : 'l',
-            unit: 'mm',
-            format: [width, height]
-        });
-        
-        // Get actual CSS grid spacing to match the preview exactly
-        const spacing = getGridSpacing();
-        
-        // Calculate available space after sheet padding
-        const { rows, cols } = layoutState.grid;
-        const availableWidth = width - spacing.sheetPadding.left - spacing.sheetPadding.right;
-        const availableHeight = height - spacing.sheetPadding.top - spacing.sheetPadding.bottom;
-        
-        // Calculate cell dimensions accounting for gaps
-        const totalGapWidth = spacing.columnGap * (cols - 1);
-        const totalGapHeight = spacing.rowGap * (rows - 1);
-        const cellWidth = (availableWidth - totalGapWidth) / cols;
-        const cellHeight = (availableHeight - totalGapHeight) / rows;
-        
-        // Calculate effective content area within each cell (accounting for cell padding)
-        const contentWidth = cellWidth - (spacing.cellPadding * 2);
-        const contentHeight = cellHeight - (spacing.cellPadding * 2);
-        
-        console.log(`PDF dimensions: ${width}×${height}mm, Grid: ${cols}×${rows}`);
-        console.log(`Sheet padding: ${spacing.sheetPadding.left.toFixed(1)}mm, Grid gap: ${spacing.columnGap.toFixed(1)}×${spacing.rowGap.toFixed(1)}mm, Cell padding: ${spacing.cellPadding.toFixed(1)}mm`);
-        console.log(`Cell size: ${cellWidth.toFixed(1)}×${cellHeight.toFixed(1)}mm, Content area: ${contentWidth.toFixed(1)}×${contentHeight.toFixed(1)}mm`);
-        
-        // Process each cell that has content
-        for (let i = 0; i < layoutState.cells.length; i++) {
-            const cellData = layoutState.cells[i];
-            if (!cellData || !cellData.content) continue;
-            
-            // Calculate cell position accounting for sheet padding, gaps, and cell padding
-            const row = Math.floor(i / cols);
-            const col = i % cols;
-            
-            // Cell position (including sheet padding and gaps)
-            const cellX = spacing.sheetPadding.left + col * (cellWidth + spacing.columnGap);
-            const cellY = spacing.sheetPadding.top + row * (cellHeight + spacing.rowGap);
-            
-            // Content position (cell position + cell padding)
-            const contentX = cellX + spacing.cellPadding;
-            const contentY = cellY + spacing.cellPadding;
-            
-            console.log(`Processing cell ${i} at grid (${col},${row}) -> cell coords (${cellX.toFixed(1)}, ${cellY.toFixed(1)}) -> content area (${contentX.toFixed(1)}, ${contentY.toFixed(1)})`);
-            
-            try {
-                // Get the image data URL from the content
-                const imageDataUrl = await blobToDataURL(cellData.content.src);
-                
-                // Load image to get natural dimensions
-                const imgDimensions = await getImageDimensions(imageDataUrl);
-                
-                // Calculate image placement based on object-fit mode (using content area dimensions)
-                const placement = calculateImagePlacement(
-                    imgDimensions,
-                    { width: contentWidth, height: contentHeight },
-                    cellData.objectFit || 'contain'
-                );
-                
-                // For modes that need clipping, use jsPDF clipping API
-                if (cellData.objectFit === 'cover' || cellData.objectFit === 'none') {
-                    // Use jsPDF clipping to contain overflow for both cover and none modes
-                    pdf.saveGraphicsState();
-                    pdf.rect(contentX, contentY, contentWidth, contentHeight, null);
-                    pdf.clip();
-                    pdf.discardPath();
-                    
-                    pdf.addImage(
-                        imageDataUrl,
-                        'JPEG',
-                        contentX + placement.x,
-                        contentY + placement.y,
-                        placement.width,
-                        placement.height
-                    );
-                    
-                    pdf.restoreGraphicsState();
-                } else {
-                    // For other modes (contain, fill, scale-down), no clipping needed
-                    pdf.addImage(
-                        imageDataUrl,
-                        'JPEG',
-                        contentX + placement.x,
-                        contentY + placement.y,
-                        placement.width,
-                        placement.height
-                    );
-                }
-                
-                console.log(`Added image to cell ${i}: ${placement.width.toFixed(1)}×${placement.height.toFixed(1)}mm at offset (${placement.x.toFixed(1)}, ${placement.y.toFixed(1)})`);
-                
-            } catch (error) {
-                console.error(`Failed to process cell ${i}:`, error);
-                // Continue with other cells
-            }
-        }
-        
-        // Generate filename with timestamp
-        const timestamp = new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-');
-        const filename = `pdfomator-layout-${timestamp}.pdf`;
-        
-        // Save the PDF
-        pdf.save(filename);
-        
-        console.log(`PDF exported successfully: ${filename}`);
-        
-    } catch (error) {
-        console.error('Export failed:', error);
-        throw error;
-    }
-}
-
-// Helper function to convert blob URL or blob to data URL
-function blobToDataURL(input) {
-    return new Promise((resolve, reject) => {
-        // If it's already a data URL, return it directly
-        if (typeof input === 'string' && input.startsWith('data:')) {
-            resolve(input);
-            return;
-        }
-        
-        // If it's a blob URL, fetch it first
-        if (typeof input === 'string' && input.startsWith('blob:')) {
-            fetch(input)
-                .then(response => response.blob())
-                .then(blob => {
-                    const reader = new FileReader();
-                    reader.onload = () => resolve(reader.result);
-                    reader.onerror = reject;
-                    reader.readAsDataURL(blob);
-                })
-                .catch(reject);
-            return;
-        }
-        
-        // If it's a direct blob object
-        if (input instanceof Blob) {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = reject;
-            reader.readAsDataURL(input);
-            return;
-        }
-        
-        // Unsupported type
-        reject(new Error(`Unsupported input type: ${typeof input}`));
-    });
-}
-
-// Helper function to get image natural dimensions
-function getImageDimensions(dataUrl) {
-    return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => {
-            resolve({
-                width: img.naturalWidth,
-                height: img.naturalHeight
-            });
-        };
-        img.onerror = reject;
-        img.src = dataUrl;
-    });
 }
 
 // Helper function to calculate image placement based on object-fit
@@ -920,9 +994,9 @@ function calculateImagePlacement(imgDimensions, cellDimensions, objectFit) {
             break;
             
         case 'none':
-            // Use PDF DPI conversion to match jsPDF's internal scaling
-            width = imgDimensions.width * pdfDpiToMm;
-            height = imgDimensions.height * pdfDpiToMm;
+            // Use browser DPI conversion to match DOM natural size in mm
+            width = imgDimensions.width * browserDpiToMm;
+            height = imgDimensions.height * browserDpiToMm;
             x = (cellDimensions.width - width) / 2;
             y = (cellDimensions.height - height) / 2;
             break;
@@ -978,12 +1052,10 @@ window.PDFomator = {
     layoutState,
     CONFIG,
     elements,
-    updateSheetGrid,
-    exportToPDF
+    updateSheetGrid
 };
 
 // TODO: Future enhancements
-// - Vector export via pdf-lib instead of raster
 // - Pinch-to-zoom on mobile devices  
 // - Dark mode theme toggle
 // - Custom paper sizes
@@ -994,75 +1066,4 @@ window.PDFomator = {
 // - Print optimization
 // - Template saving/loading
 
-// Helper function to get actual CSS grid spacing in mm
-function getGridSpacing() {
-    const sheet = elements.sheet;
-    const computedStyle = window.getComputedStyle(sheet);
-    
-    // Get CSS gap values
-    const gap = computedStyle.gap;
-    const rowGap = computedStyle.rowGap || computedStyle.gridRowGap || '0px';
-    const columnGap = computedStyle.columnGap || computedStyle.gridColumnGap || '0px';
-    
-    // Get sheet padding
-    const paddingTop = parseFloat(computedStyle.paddingTop) || 0;
-    const paddingRight = parseFloat(computedStyle.paddingRight) || 0;
-    const paddingBottom = parseFloat(computedStyle.paddingBottom) || 0;
-    const paddingLeft = parseFloat(computedStyle.paddingLeft) || 0;
-    
-    // Parse gap values - handle both shorthand and individual properties
-    let parsedRowGap, parsedColumnGap;
-    
-    if (gap && gap !== 'normal' && gap !== '0px') {
-        // Shorthand 'gap' property - could be "10px" or "10px 15px"
-        const gapValues = gap.split(' ');
-        parsedRowGap = parseFloat(gapValues[0]);
-        parsedColumnGap = parseFloat(gapValues[1] || gapValues[0]);
-    } else {
-        // Individual properties
-        parsedRowGap = parseFloat(rowGap);
-        parsedColumnGap = parseFloat(columnGap);
-    }
-    
-    // Get cell padding by checking a filled cell (if any exists)
-    let cellPadding = 0;
-    const filledCell = sheet.querySelector('.sheet-cell.filled');
-    if (filledCell) {
-        const cellStyle = window.getComputedStyle(filledCell);
-        // Use the maximum padding value (they should be the same in our case)
-        cellPadding = Math.max(
-            parseFloat(cellStyle.paddingTop) || 0,
-            parseFloat(cellStyle.paddingRight) || 0,
-            parseFloat(cellStyle.paddingBottom) || 0,
-            parseFloat(cellStyle.paddingLeft) || 0
-        );
-    } else {
-        // Fallback: create a temporary filled cell to measure
-        const tempCell = document.createElement('div');
-        tempCell.className = 'sheet-cell filled';
-        tempCell.style.visibility = 'hidden';
-        tempCell.style.position = 'absolute';
-        sheet.appendChild(tempCell);
-        const tempStyle = window.getComputedStyle(tempCell);
-        cellPadding = parseFloat(tempStyle.paddingTop) || 0;
-        sheet.removeChild(tempCell);
-    }
-    
-    // Convert from pixels to mm using PDF DPI conversion to match jsPDF
-    const pdfDpiToMm = 25.4 / 72; // 0.352778 - matches jsPDF's internal scaling
-    
-    return {
-        rowGap: (parsedRowGap || 0) * pdfDpiToMm,
-        columnGap: (parsedColumnGap || 0) * pdfDpiToMm,
-        sheetPadding: {
-            top: paddingTop * pdfDpiToMm,
-            right: paddingRight * pdfDpiToMm,
-            bottom: paddingBottom * pdfDpiToMm,
-            left: paddingLeft * pdfDpiToMm
-        },
-        cellPadding: cellPadding * pdfDpiToMm
-    };
-}
-
-// Helper function to crop image for cover mode
 // End of file
