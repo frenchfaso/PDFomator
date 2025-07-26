@@ -1018,27 +1018,27 @@ function renderSVGCell(cellGroup, cellIndex, cellX, cellY, cellWidth, cellHeight
         
         cellGroup.appendChild(imageEl);
         
-        // Add fill mode cycling button (small circle with square icon in top-left)
+        // Add fill mode cycling button (circle with square icon in top-left corner, inside cell)
         const fillModeBtn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         fillModeBtn.style.cursor = 'pointer';
         
         const fillModeBtnCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        fillModeBtnCircle.setAttribute('cx', cellX + 8);
-        fillModeBtnCircle.setAttribute('cy', cellY + 8);
-        fillModeBtnCircle.setAttribute('r', '6');
+        fillModeBtnCircle.setAttribute('cx', cellX + 12);
+        fillModeBtnCircle.setAttribute('cy', cellY + 12);
+        fillModeBtnCircle.setAttribute('r', '12');
         fillModeBtnCircle.setAttribute('fill', 'rgba(40, 167, 69, 0.9)');
         fillModeBtnCircle.setAttribute('stroke', 'white');
-        fillModeBtnCircle.setAttribute('stroke-width', '1');
+        fillModeBtnCircle.setAttribute('stroke-width', '2');
         
-        // Simple white square outline icon
+        // Simple white square outline icon (larger)
         const fillModeBtnIcon = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        fillModeBtnIcon.setAttribute('x', cellX + 6);
-        fillModeBtnIcon.setAttribute('y', cellY + 6);
-        fillModeBtnIcon.setAttribute('width', '4');
-        fillModeBtnIcon.setAttribute('height', '4');
+        fillModeBtnIcon.setAttribute('x', cellX + 8);
+        fillModeBtnIcon.setAttribute('y', cellY + 8);
+        fillModeBtnIcon.setAttribute('width', '8');
+        fillModeBtnIcon.setAttribute('height', '8');
         fillModeBtnIcon.setAttribute('fill', 'none');
         fillModeBtnIcon.setAttribute('stroke', 'white');
-        fillModeBtnIcon.setAttribute('stroke-width', '1');
+        fillModeBtnIcon.setAttribute('stroke-width', '2');
         
         fillModeBtn.appendChild(fillModeBtnCircle);
         fillModeBtn.appendChild(fillModeBtnIcon);
@@ -1051,25 +1051,25 @@ function renderSVGCell(cellGroup, cellIndex, cellX, cellY, cellWidth, cellHeight
         
         cellGroup.appendChild(fillModeBtn);
         
-        // Add remove button (small circle with X)
+        // Add remove button (circle with X in top-right corner, inside cell)
         const removeBtn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         removeBtn.style.cursor = 'pointer';
         
         const removeBtnCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        removeBtnCircle.setAttribute('cx', cellX + cellWidth - 8);
-        removeBtnCircle.setAttribute('cy', cellY + 8);
-        removeBtnCircle.setAttribute('r', '6');
+        removeBtnCircle.setAttribute('cx', cellX + cellWidth - 12);
+        removeBtnCircle.setAttribute('cy', cellY + 12);
+        removeBtnCircle.setAttribute('r', '12');
         removeBtnCircle.setAttribute('fill', 'rgba(220, 53, 69, 0.9)');
         removeBtnCircle.setAttribute('stroke', 'white');
-        removeBtnCircle.setAttribute('stroke-width', '1');
+        removeBtnCircle.setAttribute('stroke-width', '2');
         
         const removeBtnText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        removeBtnText.setAttribute('x', cellX + cellWidth - 8);
-        removeBtnText.setAttribute('y', cellY + 8);
+        removeBtnText.setAttribute('x', cellX + cellWidth - 12);
+        removeBtnText.setAttribute('y', cellY + 12);
         removeBtnText.setAttribute('text-anchor', 'middle');
         removeBtnText.setAttribute('dominant-baseline', 'central');
         removeBtnText.setAttribute('font-family', 'monospace');
-        removeBtnText.setAttribute('font-size', '10');
+        removeBtnText.setAttribute('font-size', '16');
         removeBtnText.setAttribute('fill', 'white');
         removeBtnText.setAttribute('font-weight', 'bold');
         removeBtnText.textContent = '×';
@@ -1085,26 +1085,26 @@ function renderSVGCell(cellGroup, cellIndex, cellX, cellY, cellWidth, cellHeight
         
         cellGroup.appendChild(removeBtn);
         
-        // Add reset button for cover mode (small circle with reset icon)
+        // Add reset button for cover mode (circle with reset icon in bottom-right corner, inside cell)
         if (cellData.fillMode === 'cover') {
             const resetBtn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
             resetBtn.style.cursor = 'pointer';
             
             const resetBtnCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-            resetBtnCircle.setAttribute('cx', cellX + cellWidth - 8);
-            resetBtnCircle.setAttribute('cy', cellY + cellHeight - 8);
-            resetBtnCircle.setAttribute('r', '6');
+            resetBtnCircle.setAttribute('cx', cellX + cellWidth - 12);
+            resetBtnCircle.setAttribute('cy', cellY + cellHeight - 12);
+            resetBtnCircle.setAttribute('r', '12');
             resetBtnCircle.setAttribute('fill', 'rgba(13, 110, 253, 0.9)');
             resetBtnCircle.setAttribute('stroke', 'white');
-            resetBtnCircle.setAttribute('stroke-width', '1');
+            resetBtnCircle.setAttribute('stroke-width', '2');
             
             const resetBtnText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-            resetBtnText.setAttribute('x', cellX + cellWidth - 8);
-            resetBtnText.setAttribute('y', cellY + cellHeight - 8);
+            resetBtnText.setAttribute('x', cellX + cellWidth - 12);
+            resetBtnText.setAttribute('y', cellY + cellHeight - 12);
             resetBtnText.setAttribute('text-anchor', 'middle');
             resetBtnText.setAttribute('dominant-baseline', 'central');
             resetBtnText.setAttribute('font-family', 'monospace');
-            resetBtnText.setAttribute('font-size', '8');
+            resetBtnText.setAttribute('font-size', '14');
             resetBtnText.setAttribute('fill', 'white');
             resetBtnText.setAttribute('font-weight', 'bold');
             resetBtnText.textContent = '⟲';
