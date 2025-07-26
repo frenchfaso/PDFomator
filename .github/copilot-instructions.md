@@ -1,22 +1,23 @@
 # PDFomator - Copilot Instructions
 
 ## Project Overview
-PDFomator is a minimal Progressive Web App (PWA) designed for mobile-first usage. The app allows users to arrange PDF pages into customizable grid layouts on different paper sizes (A4, A3) and export the result as a new PDF. The primary use case is combining multiple PDF pages onto a single sheet for printing or presentation purposes.
+PDFomator is a minimal Progressive Web App (PWA) designed for mobile-first usage. The app allows users to arrange PDF pages and images into customizable grid layouts on different paper sizes (A4, A3) and export the result as a new PDF. The primary use case is combining multiple content pieces onto a single sheet for printing or presentation purposes.
 
 ## Architecture & Technology Stack
-- **Frontend**: Vanilla JavaScript (ES6+), HTML5, CSS3
-- **Styling**: Pico CSS framework + custom CSS variables
-- **PDF Processing**: PDF.js for reading, jsPDF for generation, html2canvas for rendering
-- **PWA Features**: Service Worker, Web App Manifest, offline-first design
+- **Frontend**: Vanilla JavaScript ES6+ module, HTML5, CSS3
+- **Styling**: Pico CSS v2 framework + custom CSS variables
+- **PDF Processing**: PDF.js 4.0.379 for reading, jsPDF 3.0.1 for generation, Canvas API + SVG rendering
+- **PWA Features**: Service Worker v6, Web App Manifest, offline-first caching
 - **Deployment**: GitHub Pages (static files only, no build process)
-- **File Structure**: All source files in root directory for simple deployment
+- **File Structure**: Flat structure in root directory for deployment simplicity
 
 ## Key Technical Constraints
 - No build tools, bundlers, or frameworks - pure static files only
 - Mobile-first responsive design with touch-friendly interfaces
-- All dependencies loaded via CDN or included in libs/ folder
-- Offline functionality through service worker caching
+- All dependencies loaded via CDN (jsDelivr, cdnjs)
+- Offline functionality through service worker caching with specific CDN whitelisting
 - Performance optimized for mobile devices and slower connections
+- SVG-based rendering for precise layout and scalable export quality
 
 ## Coding Standards & Conventions
 
@@ -49,26 +50,31 @@ PDFomator is a minimal Progressive Web App (PWA) designed for mobile-first usage
 
 ## Component Architecture
 
-### Core Components
-- **Sheet Manager**: Handles grid layout, cell management, paper size calculations
-- **PDF Processor**: PDF.js integration for reading, jsPDF for generation
-- **File Handlers**: Drag & drop, file picker, PDF page selection
-- **Export System**: Canvas rendering and PDF generation
-- **UI Controllers**: Overlay management, responsive dialogs, FAB interactions
+### Core Components Implemented
+- **Sheet Manager**: SVG-based grid layout, cell management, paper size calculations with mm precision
+- **PDF Processor**: PDF.js integration for reading with worker configuration, sequential page thumbnail generation
+- **File Handlers**: File picker for PDFs/images, PDF page selection with visual thumbnails
+- **Rendering System**: Pure SVG rendering with native Canvas API integration for PDF-to-bitmap conversion
+- **UI Controllers**: Overlay management with backdrop blur, responsive modal dialogs, FAB interactions
+- **Image Manipulation**: Multi-mode image fitting (contain, cover, fill) with pan/zoom for cover mode
+- **Touch Interaction**: Single-finger pan, two-finger pinch-to-zoom, wheel zoom for desktop
 
-### State Management
-- Use simple object-based state management
-- Maintain state in global variables with clear naming
-- Implement state persistence for user preferences
-- Handle state updates through dedicated functions
+### Current State Management Pattern
+- Object-based state in `layoutState` global variable with nested structure
+- Paper size/orientation management with automatic CSS class updates
+- Grid configuration with dynamic cell array management
+- Cell content storage with image metadata, fill modes, and transform states
+- No external state library - pure vanilla JavaScript state handling
 
 ## User Experience Patterns
-- Floating Action Buttons (FABs) for primary actions
-- Modal overlays for complex selections (grid picker, size selector)
-- Immediate visual feedback for user interactions
-- Progressive disclosure of advanced features
-- Touch-optimized gestures and interactions
-- Graceful loading states and error handling
+- Floating Action Buttons (FABs) for primary actions (size, grid, export)
+- Modal overlays with backdrop blur for complex selections (grid picker, size selector, file type)
+- Immediate visual feedback for user interactions with CSS transitions
+- Progressive disclosure through multi-step file selection workflow
+- Touch-optimized gestures: pan/zoom for image positioning in cover mode
+- Click-to-cycle UI pattern for image fill mode switching
+- Visual indicators for fill modes with interactive hints
+- Graceful loading states with spinner animations and descriptive messages
 
 ## Performance Requirements
 - Fast initial load time (< 3 seconds on 3G)
@@ -79,12 +85,15 @@ PDFomator is a minimal Progressive Web App (PWA) designed for mobile-first usage
 - Minimal JavaScript bundle size through selective feature loading
 
 ## PWA Implementation
-- Comprehensive service worker for offline functionality
-- Cache-first strategy for static assets
-- Network-first for dynamic content
-- Proper manifest.json with all required properties
+- Comprehensive service worker (sw.js v6) for offline functionality
+- Cache-first strategy for static assets with specific CDN whitelisting:
+  - Pico CSS from cdn.jsdelivr.net
+  - PDF.js core and worker from cdn.jsdelivr.net
+  - jsPDF from cdnjs.cloudflare.com
+- Network-first for dynamic content with offline fallbacks
+- Complete manifest.json with SVG icons, screenshots, shortcuts
 - Installable on mobile devices with app-like experience
-- Background sync capabilities where appropriate
+- Background sync capabilities prepared for future export functionality
 
 ## Browser Compatibility
 - Modern browsers with ES6+ support
@@ -115,34 +124,73 @@ PDFomator is a minimal Progressive Web App (PWA) designed for mobile-first usage
 - Manual testing on real mobile devices
 
 ## File Organization Patterns
-- Flat structure in root directory for GitHub Pages
-- Logical grouping of related functions in single files
-- External libraries in libs/ folder
-- Static assets (icons, manifest) in root
-- Clear separation between framework code and app logic
+- Flat structure in root directory for GitHub Pages deployment
+- All source files in root: index.html, main.js, styles.css, sw.js, manifest.json
+- No libs/ folder - all dependencies via CDN
+- Static PWA assets embedded as data URIs in manifest.json
+- Clear separation between UI code and business logic within single main.js file
+
+## Current Implementation Details
+
+### Dependency Management
+- Pico CSS v2: https://cdn.jsdelivr.net/npm/@picocss/pico@v2/css/pico.min.css
+- PDF.js 4.0.379: core and worker from cdn.jsdelivr.net (ES modules)
+- jsPDF 3.0.1: https://cdnjs.cloudflare.com/ajax/libs/jspdf/3.0.1/jspdf.umd.min.js
+- Service worker caches specific CDN URLs for offline functionality
+
+### Main Application Structure (main.js)
+- **layoutState**: Global state object with sheet{paperSize, orientation, width, height}, grid{cols, rows}, cells[]
+- **CONFIG**: Application constants including paperSizes, maxGridSize, pdfWorkerUrl
+- **overlayManager**: Utility for showing/hiding modal overlays with backdrop
+- **PDF Processing**: PDF.js worker setup, page rendering to canvas/bitmap, thumbnail generation
+- **SVG Rendering**: Complete SVG-based sheet rendering with precise mm calculations
+- **Touch Interactions**: Pan/zoom for cover mode, single/multi-touch handling
+
+### Key Technical Features Implemented
+- SVG-based grid layout system with mm precision (210x297 A4, 297x420 A3)
+- Image fill modes: contain (fit), cover (fill+crop+interactive), fill (stretch)
+- Interactive transforms for cover mode: scale (0.5-3x), translateX/Y (unlimited)
+- Sequential PDF page thumbnail generation with cancellation support
+- Canvas-to-bitmap conversion for persistent image storage
+- Touch gesture handling: single-finger pan, two-finger pinch-to-zoom
+- Keyboard shortcuts: ESC (close overlays), Ctrl/Cmd+E (export)
+
+### State Management Pattern
+```javascript
+layoutState = {
+    sheet: { paperSize: 'A4', orientation: 'portrait', width: 210, height: 297 },
+    grid: { cols: 1, rows: 2 },
+    cells: [{ image: {src, width, height}, title, fillMode, transform: {scale, translateX, translateY} }]
+}
+```
+
+### Service Worker (sw.js v6)
+- Cache name: 'pdfomator-v6'
+- Specific CDN whitelisting for Pico CSS, PDF.js, jsPDF
+- Cache-first strategy with network fallback
+- HTML fallback for offline navigation
+- Background sync preparation for export functionality
+
+### Export System Status
+- SVG rendering fully implemented and functional
+- Export functionality marked as TODO - needs jsPDF integration
+- Canvas-based PDF generation pipeline ready for implementation
+- All cell content stored as persistent data URLs for export compatibility
 
 ## Code Quality Guidelines
-- Write self-documenting code with clear function names
-- Add JSDoc comments for complex functions
-- Implement comprehensive error boundaries
-- Use consistent formatting and indentation
-- Avoid deeply nested conditional logic
-- Prefer composition over inheritance patterns
-- Keep functions small and focused on single tasks
+- ES6+ features: const/let, arrow functions, async/await, destructuring, template literals
+- Error boundaries with try/catch and global handlers
+- User-friendly error messages with actionable guidance
+- Consistent camelCase naming and 2-space indentation
+- Functions focused on single responsibilities with descriptive names
+- Proper event cleanup and memory management (bitmap.close(), removeEventListener)
 
 ## Testing Strategy
-- Manual testing on target mobile devices
-- Cross-browser compatibility testing
-- Performance testing with large PDF files
-- Offline functionality verification
-- Touch interaction testing
-- Accessibility testing with screen readers
+- Manual testing on target mobile devices (iOS Safari, Chrome Android)
+- Cross-browser compatibility testing with ES6+ support
+- Large PDF file performance testing with memory optimization
+- Offline functionality verification with service worker
+- Touch interaction testing for pan/zoom gestures
+- File format validation and error handling testing
 
-## Documentation Requirements
-- Clear README with setup and usage instructions
-- Inline code comments for complex logic
-- API documentation for major functions
-- Deployment and maintenance procedures
-- User guide for PWA installation
-
-When working on this project, always consider the mobile-first, offline-capable, and performance-optimized nature of the application. Prioritize simplicity, user experience, and maintainability over complex architectural patterns.
+When working on this project, prioritize the SVG-based rendering system, maintain the mobile-first touch interactions, and ensure all features work offline. The export functionality is the main missing piece - focus on integrating the existing SVG layout with jsPDF for PDF generation.
