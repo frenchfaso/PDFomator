@@ -3,7 +3,7 @@
 <head>
         <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob:; connect-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com blob:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob:; connect-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net blob:;">
     <title>PDFomator</title>
     <meta name="description" content="Minimal Mobile PWA to Pack PDF Pages on a Sheet">
     
@@ -55,7 +55,7 @@
             <div class="grid-info">
                 <span id="gridDisplay">1 × 2</span>
             </div>
-            <button id="cancelGrid" class="btn-secondary">Cancel</button>
+            <button id="cancelGrid" class="btn-cancel">Cancel</button>
         </div>
     </div>
     
@@ -64,28 +64,28 @@
         <div class="size-picker">
             <h3>Select Paper Size & Orientation</h3>
             <div class="size-options">
-                <div class="size-option" data-size="A4" data-orientation="portrait">
+                <div class="size-option interactive-card" data-size="A4" data-orientation="portrait">
                     <div class="size-preview a4-portrait"></div>
                     <span class="size-label">A4 Portrait</span>
                     <span class="size-dimensions">210 × 297mm</span>
                 </div>
-                <div class="size-option" data-size="A4" data-orientation="landscape">
+                <div class="size-option interactive-card" data-size="A4" data-orientation="landscape">
                     <div class="size-preview a4-landscape"></div>
                     <span class="size-label">A4 Landscape</span>
                     <span class="size-dimensions">297 × 210mm</span>
                 </div>
-                <div class="size-option" data-size="A3" data-orientation="portrait">
+                <div class="size-option interactive-card" data-size="A3" data-orientation="portrait">
                     <div class="size-preview a3-portrait"></div>
                     <span class="size-label">A3 Portrait</span>
                     <span class="size-dimensions">297 × 420mm</span>
                 </div>
-                <div class="size-option" data-size="A3" data-orientation="landscape">
+                <div class="size-option interactive-card" data-size="A3" data-orientation="landscape">
                     <div class="size-preview a3-landscape"></div>
                     <span class="size-label">A3 Landscape</span>
                     <span class="size-dimensions">420 × 297mm</span>
                 </div>
             </div>
-            <button id="cancelSize" class="btn-secondary">Cancel</button>
+            <button id="cancelSize" class="btn-cancel">Cancel</button>
         </div>
     </div>
     
@@ -95,7 +95,7 @@
             <h3>Select PDF Page</h3>
             <div id="pageGrid" class="page-grid"></div>
             <div class="page-selector-actions">
-                <button id="cancelPageSelection" class="btn-secondary">Cancel</button>
+                <button id="cancelPageSelection" class="btn-cancel">Cancel</button>
             </div>
         </div>
     </div>
@@ -105,16 +105,16 @@
         <div class="file-type-picker">
             <h3>Choose Content Type</h3>
             <div class="file-type-buttons">
-                <button id="selectPdfBtn" class="file-type-btn">
+                <button id="selectPdfBtn" class="file-type-btn interactive-card">
                     <span class="file-type-icon">📄</span>
                     <span>PDF Document</span>
                 </button>
-                <button id="selectImageBtn" class="file-type-btn">
+                <button id="selectImageBtn" class="file-type-btn interactive-card">
                     <span class="file-type-icon">🖼️</span>
                     <span>Image File</span>
                 </button>
             </div>
-            <button id="cancelFileType" class="btn-secondary">Cancel</button>
+            <button id="cancelFileType" class="btn-cancel">Cancel</button>
         </div>
     </div>
     
@@ -129,8 +129,12 @@
     </div>
     
     <!-- Scripts -->
-    <script src="libs/pdf.min.js"></script>
-    <script src="libs/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.mjs" type="module"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/3.0.1/jspdf.umd.min.js"></script>
+    <script>
+        // jsPDF initialization (from official examples)
+        window.jsPDF = window.jspdf.jsPDF;
+    </script>
     <script type="module" src="main.js"></script>
 </body>
 </html>

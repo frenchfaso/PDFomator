@@ -84,14 +84,16 @@ body {
     border: 1px solid #ddd;
     border-radius: var(--border-radius-small);
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    display: grid;
-    gap: 1px;
-    padding: 8px;
     margin: 0 auto;
     
     /* Unified size constraints for all devices */
     max-width: 95vw;
     max-height: 75vh;
+    
+    /* SVG container - no padding needed since SVG handles all layout */
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 /* A4 Portrait: 210mm × 297mm */
@@ -116,89 +118,6 @@ body {
 .sheet.a3-landscape {
     width: min(95vw, 75vh * 420 / 297);
     height: min(75vh, 95vw * 297 / 420);
-}
-
-/* Grid cells */
-.sheet-cell {
-    border: 2px dashed var(--pico-muted-border-color);
-    border-radius: var(--border-radius-small);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-    min-height: 100px;
-    transition: border-color 0.2s ease;
-    /* Ensure cells maintain grid dimensions */
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-}
-
-.sheet-cell:hover {
-    border-color: var(--fab-bg);
-}
-
-.sheet-cell.filled {
-    border: none;
-    padding: 4px;
-}
-
-.sheet-cell canvas,
-.sheet-cell img {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    border-radius: 2px;
-    display: block;
-}
-
-.sheet-cell .add-btn {
-    background: var(--grid-bg);
-    color: var(--pico-muted-color);
-    border: none;
-    border-radius: 50%;
-    width: 48px;
-    height: 48px;
-    cursor: pointer;
-    font-size: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s ease;
-    opacity: 0.7;
-}
-
-.sheet-cell .add-btn:hover {
-    background: var(--grid-hover);
-    opacity: 1;
-    transform: scale(1.1);
-}
-
-.sheet-cell.filled .add-btn {
-    display: none;
-}
-
-.sheet-cell .remove-btn {
-    position: absolute;
-    top: 4px;
-    right: 4px;
-    background: var(--error-bg);
-    color: white;
-    border: none;
-    border-radius: 50%;
-    width: 24px;
-    height: 24px;
-    cursor: pointer;
-    font-size: 12px;
-    display: flex;
-    z-index: 2;
-    /* Ensure perfect circle and centering */
-    align-items: center;
-    justify-content: center;
-    line-height: 1;
-    padding: 0;
-    min-width: 24px;
-    min-height: 24px;
 }
 
 /* Floating Action Buttons */
@@ -289,12 +208,8 @@ body {
     border-color: var(--primary-blue);
 }
 
-.grid-info {
-    font-weight: bold;
-    color: var(--primary-blue-dark);
-}
-
-#cancelGrid {
+/* Common interactive elements */
+.btn-cancel {
     margin-top: 1rem;
     background: var(--gray-medium);
     color: white;
@@ -305,8 +220,41 @@ body {
     transition: background-color 0.2s ease;
 }
 
-#cancelGrid:hover {
+.btn-cancel:hover {
     background: var(--gray-dark);
+}
+
+.btn-secondary {
+    background: var(--pico-muted-border-color);
+    color: var(--pico-color);
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+    background: var(--pico-secondary-background);
+}
+
+.interactive-card {
+    background: var(--gray-light);
+    border: 2px solid var(--gray-border);
+    border-radius: var(--border-radius);
+    padding: 1rem;
+    cursor: pointer;
+    transition: var(--transition-base);
+}
+
+.interactive-card:hover {
+    background: var(--primary-blue-light);
+    border-color: var(--primary-blue);
+}
+
+.grid-info {
+    font-weight: bold;
+    color: var(--primary-blue-dark);
 }
 
 /* Size picker overlay */
@@ -341,18 +289,7 @@ body {
 }
 
 .size-option {
-    background: var(--gray-light);
-    border: 2px solid var(--gray-border);
-    border-radius: var(--border-radius);
-    padding: 1rem;
-    cursor: pointer;
-    transition: var(--transition-base);
     text-align: left;
-}
-
-.size-option:hover {
-    background: var(--primary-blue-light);
-    border-color: var(--primary-blue);
 }
 
 .size-option.selected {
@@ -381,21 +318,6 @@ body {
 .size-preview.a3-landscape {
     width: 60px;
     height: 42px;
-}
-
-#cancelSize {
-    margin-top: 1rem;
-    background: var(--gray-medium);
-    color: white;
-    border: none;
-    padding: 0.5rem 1rem;
-    border-radius: var(--border-radius-small);
-    cursor: pointer;
-    transition: background-color 0.2s ease;
-}
-
-#cancelSize:hover {
-    background: var(--gray-dark);
 }
 
 /* File type selector overlay */
@@ -430,12 +352,6 @@ body {
 }
 
 .file-type-btn {
-    background: var(--gray-light);
-    border: 2px solid var(--gray-border);
-    border-radius: var(--border-radius);
-    padding: 1rem;
-    cursor: pointer;
-    transition: var(--transition-base);
     display: flex;
     align-items: center;
     gap: 0.75rem;
@@ -443,28 +359,8 @@ body {
     color: inherit;
 }
 
-.file-type-btn:hover {
-    background: var(--primary-blue-light);
-    border-color: var(--primary-blue);
-}
-
 .file-type-icon {
     font-size: 1.5rem;
-}
-
-#cancelFileType {
-    margin-top: 1rem;
-    background: var(--gray-medium);
-    color: white;
-    border: none;
-    padding: 0.5rem 1rem;
-    border-radius: var(--border-radius-small);
-    cursor: pointer;
-    transition: background-color 0.2s ease;
-}
-
-#cancelFileType:hover {
-    background: var(--gray-dark);
 }
 
 .btn-secondary {
@@ -554,20 +450,6 @@ body {
 
 .page-selector-actions {
     margin-top: 1rem;
-}
-
-#cancelPageSelection {
-    background: #6c757d;
-    color: white;
-    border: none;
-    padding: 0.5rem 1rem;
-    border-radius: var(--border-radius-small);
-    cursor: pointer;
-    transition: background-color 0.2s ease;
-}
-
-#cancelPageSelection:hover {
-    background: #5a6268;
 }
 
 /* Loading indicator */
@@ -694,29 +576,6 @@ body {
     .page-grid {
         grid-template-columns: 1fr;
     }
-    
-    .sheet-cell .add-btn {
-        width: 40px;
-        height: 40px;
-        font-size: 20px;
-    }
-}
-
-/* Paper size specific styles */
-.sheet.a4-portrait {
-    aspect-ratio: 210 / 297;
-}
-
-.sheet.a4-landscape {
-    aspect-ratio: 297 / 210;
-}
-
-.sheet.a3-portrait {
-    aspect-ratio: 297 / 420;
-}
-
-.sheet.a3-landscape {
-    aspect-ratio: 420 / 297;
 }
 
 /* Dark mode support */

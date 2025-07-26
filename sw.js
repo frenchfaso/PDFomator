@@ -1,16 +1,17 @@
 // PDFomator Service Worker
 // Simple offline cache for static assets
 
-const CACHE_NAME = 'pdfomator-v1';
+const CACHE_NAME = 'pdfomator-v6';
 const STATIC_ASSETS = [
     './',
     './index.html',
     './styles.css',
     './main.js',
     './manifest.json',
-    './libs/pdf.min.js',
-    './libs/jspdf.umd.min.js',
-    'https://cdn.jsdelivr.net/npm/@picocss/pico@v2/css/pico.min.css'
+    'https://cdn.jsdelivr.net/npm/@picocss/pico@v2/css/pico.min.css',
+    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.mjs',
+    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.worker.mjs',
+    'https://cdnjs.cloudflare.com/ajax/libs/jspdf/3.0.1/jspdf.umd.min.js'
 ];
 
 // Install event - cache static assets
@@ -63,12 +64,14 @@ self.addEventListener('fetch', event => {
         return;
     }
     
-    // Skip cross-origin requests (except for Pico CSS)
+    // Allow specific CDN requests for our libraries
     const url = new URL(event.request.url);
     const isOwnOrigin = url.origin === self.location.origin;
     const isPicoCSS = url.hostname === 'cdn.jsdelivr.net' && url.pathname.includes('pico');
+    const isPDFJS = url.hostname === 'cdn.jsdelivr.net' && url.pathname.includes('pdfjs-dist');
+    const isJSPDF = url.hostname === 'cdnjs.cloudflare.com' && url.pathname.includes('jspdf');
     
-    if (!isOwnOrigin && !isPicoCSS) {
+    if (!isOwnOrigin && !isPicoCSS && !isPDFJS && !isJSPDF) {
         return;
     }
     
