@@ -54,20 +54,17 @@ const overlayManager = {
 let elements = {};
 let currentTargetCell = null; // Track which cell is being filled
 
-// Initialize the application
 // Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', init);
 
 // Global error boundary
 window.addEventListener('error', (event) => {
-    console.error('Global error caught:', event.error);
     hideLoading(); // Hide any loading states
     alert('An unexpected error occurred. Please refresh the page and try again.');
 });
 
 // Global promise rejection handler
 window.addEventListener('unhandledrejection', (event) => {
-    console.error('Unhandled promise rejection:', event.reason);
     hideLoading(); // Hide any loading states
     alert('An unexpected error occurred. Please refresh the page and try again.');
     event.preventDefault(); // Prevent the default browser behavior
@@ -89,18 +86,16 @@ async function init() {
     
     // Setup event listeners
     setupEventListeners();
-    
-    console.log('PDFomator initialized');
 }
 
 function registerServiceWorker() {
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('./sw.js')
             .then(registration => {
-                console.log('Service Worker registered:', registration);
+                // Service Worker registered successfully
             })
             .catch(error => {
-                console.log('Service Worker registration failed:', error);
+                // Service Worker registration failed
             });
     }
 }
@@ -131,7 +126,6 @@ function cacheElements() {
 }
 
 function showError(message) {
-    console.error('Error:', message);
     alert(`PDFomator Error: ${message}`);
 }
 
@@ -161,10 +155,8 @@ async function setupPDFWorker() {
         
         // Configure PDF.js worker
         lib.GlobalWorkerOptions.workerSrc = CONFIG.pdfWorkerUrl;
-        console.log('PDF.js worker configured successfully');
         
     } catch (error) {
-        console.error('PDF.js setup failed:', error);
         // Show user-friendly error
         showError('PDF processing library failed to load. Please check your internet connection and refresh the page.');
     }
@@ -254,10 +246,8 @@ async function handleExport() {
     
     try {
         // TODO: Implement new export functionality
-        console.log('Export functionality will be implemented here');
         alert('Export functionality will be implemented soon!');
     } catch (error) {
-        console.error('Export failed:', error);
         alert('Export failed. Please try again.');
     } finally {
         hideLoading();
@@ -276,7 +266,6 @@ async function handlePDFSelection(e) {
     try {
         await processPDFFileForCell(file, targetCell);
     } catch (error) {
-        console.error('PDF processing failed:', error);
         alert('Failed to process PDF. Please try again.');
     } finally {
         hideLoading();
@@ -300,7 +289,6 @@ async function handleImageSelection(e) {
     try {
         await processImageFileForCell(file, targetCell);
     } catch (error) {
-        console.error('Image processing failed:', error);
         alert('Failed to process image. Please try again.');
     } finally {
         hideLoading();
@@ -367,13 +355,11 @@ async function processImageFileForCell(file, cellIndex) {
                     bitmap.close();
                     
                 } catch (error) {
-                    console.error('Error adding image to cell:', error);
                     bitmap.close(); // Clean up memory on error
                     reject(new Error('Failed to add image to cell'));
                 }
             })
             .catch(error => {
-                console.error('Failed to create image bitmap:', error);
                 reject(new Error('Failed to load image file'));
             });
     });
@@ -472,8 +458,6 @@ async function generateThumbnailsSequentially(pdf, fileName, cellIndex, pageGrid
             }
             
         } catch (error) {
-            console.error(`Failed to render page ${pageNum}:`, error);
-            
             // Check if canceled before creating error placeholder
             if (isCanceledCheck()) {
                 return;
@@ -515,7 +499,6 @@ async function processSelectedPage(pdf, pageNum, fileName, cellIndex) {
         const bitmap = await renderPDFPage(selectedPage, 2, 'bitmap');
         addToSpecificCell(bitmap, `${fileName} p${pageNum}`, cellIndex);
     } catch (error) {
-        console.error('Failed to process selected page:', error);
         alert('Failed to process selected page.');
     } finally {
         hideLoading();
@@ -531,7 +514,12 @@ function addToSpecificCell(content, title = '', cellIndex) {
             height: content.naturalHeight
         },
         title,
-        fillMode: 'contain' // Default fill mode
+        fillMode: 'contain', // Default fill mode
+        transform: {
+            scale: 1,
+            translateX: 0,
+            translateY: 0
+        }
     };
     
     // Re-render entire SVG sheet
@@ -558,8 +546,189 @@ function cycleFillMode(cellIndex) {
     // Update state
     cellData.fillMode = nextMode;
     
+    // Reset transform when switching fill modes
+    if (!cellData.transform) {
+        cellData.transform = { scale: 1, translateX: 0, translateY: 0 };
+    } else {
+        cellData.transform.scale = 1;
+        cellData.transform.translateX = 0;
+        cellData.transform.translateY = 0;
+    }
+    
     // Re-render entire SVG sheet
     renderSVGSheet();
+}
+
+// Interactive image transform functions for cover mode
+function setupImageInteraction(imageEl, cellIndex, cellBounds) {
+    try {
+        const cellData = layoutState.cells[cellIndex];
+        if (!cellData || cellData.fillMode !== 'cover') return;
+        
+        // Ensure transform exists (backward compatibility)
+        if (!cellData.transform) {
+            cellData.transform = { scale: 1, translateX: 0, translateY: 0 };
+        }
+        
+        let isInteracting = false;
+        let startTouches = [];
+        let startTransform = { ...cellData.transform };
+        
+        // Prevent default image click behavior when in interactive mode
+        imageEl.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!isInteracting) {
+                // Single tap - cycle fill mode
+                cycleFillMode(cellIndex);
+            }
+        });
+        
+        // Mouse events for desktop
+        imageEl.addEventListener('mousedown', startInteraction);
+        imageEl.addEventListener('wheel', handleWheel, { passive: false });
+        
+        // Touch events for mobile
+        imageEl.addEventListener('touchstart', startInteraction, { passive: false });
+    
+    function startInteraction(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        isInteracting = true;
+        
+        if (e.type === 'touchstart') {
+            startTouches = Array.from(e.touches).map(touch => ({
+                x: touch.clientX,
+                y: touch.clientY,
+                identifier: touch.identifier
+            }));
+            
+            document.addEventListener('touchmove', handleTouchMove, { passive: false });
+            document.addEventListener('touchend', endInteraction);
+        } else {
+            startTouches = [{ x: e.clientX, y: e.clientY }];
+            
+            document.addEventListener('mousemove', handleMouseMove);
+            document.addEventListener('mouseup', endInteraction);
+        }
+        
+        startTransform = { ...cellData.transform };
+    }
+    
+    function handleMouseMove(e) {
+        if (!isInteracting || startTouches.length !== 1) return;
+        
+        const deltaX = e.clientX - startTouches[0].x;
+        const deltaY = e.clientY - startTouches[0].y;
+        
+        updateTransform(deltaX, deltaY, 1);
+    }
+    
+    function handleTouchMove(e) {
+        e.preventDefault();
+        
+        if (!isInteracting) return;
+        
+        const currentTouches = Array.from(e.touches);
+        
+        if (currentTouches.length === 1 && startTouches.length === 1) {
+            // Single finger pan
+            const deltaX = currentTouches[0].clientX - startTouches[0].x;
+            const deltaY = currentTouches[0].clientY - startTouches[0].y;
+            
+            updateTransform(deltaX, deltaY, 1);
+            
+        } else if (currentTouches.length === 2 && startTouches.length === 2) {
+            // Two finger pinch-to-zoom
+            const startDistance = getDistance(startTouches[0], startTouches[1]);
+            const currentDistance = getDistance(currentTouches[0], currentTouches[1]);
+            const scaleChange = currentDistance / startDistance;
+            
+            // Get center point of the gesture
+            const startCenter = getCenter(startTouches[0], startTouches[1]);
+            const currentCenter = getCenter(currentTouches[0], currentTouches[1]);
+            const deltaX = currentCenter.x - startCenter.x;
+            const deltaY = currentCenter.y - startCenter.y;
+            
+            updateTransform(deltaX, deltaY, scaleChange);
+        }
+    }
+    
+    function handleWheel(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const scaleChange = e.deltaY < 0 ? 1.1 : 0.9;
+        const currentScale = cellData.transform.scale;
+        const newScale = Math.max(0.5, Math.min(3, currentScale * scaleChange));
+        
+        // Apply scale change while keeping current position
+        cellData.transform.scale = newScale;
+        
+        renderSVGSheet();
+    }
+    
+    function updateTransform(deltaX, deltaY, scaleChange) {
+        try {
+            // Convert screen coordinates to SVG coordinates
+            const svg = elements.sheet.querySelector('svg');
+            if (!svg) {
+                return;
+            }
+            
+            const rect = svg.getBoundingClientRect();
+            const svgDeltaX = (deltaX / rect.width) * layoutState.sheet.width;
+            const svgDeltaY = (deltaY / rect.height) * layoutState.sheet.height;
+            
+            // Apply transform with constraints
+            const newScale = Math.max(0.5, Math.min(3, startTransform.scale * scaleChange));
+            const newTranslateX = startTransform.translateX + svgDeltaX;
+            const newTranslateY = startTransform.translateY + svgDeltaY;
+            
+            // No translation limits - user can move image completely out of frame
+            cellData.transform = {
+                scale: newScale,
+                translateX: newTranslateX,
+                translateY: newTranslateY
+            };
+            
+            renderSVGSheet();
+        } catch (error) {
+            console.error('Cover mode: Error updating transform', error);
+        }
+    }
+    
+    function endInteraction() {
+        isInteracting = false;
+        startTouches = [];
+        
+        // Remove event listeners
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', endInteraction);
+        document.removeEventListener('touchmove', handleTouchMove);
+        document.removeEventListener('touchend', endInteraction);
+        
+        // Allow click again after a brief delay
+        setTimeout(() => {
+            isInteracting = false;
+        }, 100);
+    }
+    
+    function getDistance(touch1, touch2) {
+        const dx = touch2.x - touch1.x;
+        const dy = touch2.y - touch1.y;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+    
+    function getCenter(touch1, touch2) {
+        return {
+            x: (touch1.x + touch2.x) / 2,
+            y: (touch1.y + touch2.y) / 2
+        };
+    }
+    } catch (error) {
+        // Silently handle setup errors
+    }
 }
 
 function updateSheetSize() {
@@ -609,40 +778,89 @@ function renderSVGCell(cellGroup, cellIndex, cellX, cellY, cellWidth, cellHeight
         defs.appendChild(clipPath);
         cellGroup.appendChild(defs);
         
-        // Map fill modes to SVG preserveAspectRatio values
-        const preserveAspectRatioMap = {
-            'contain': 'xMidYMid meet',    // Scale to fit entirely within cell
-            'cover': 'xMidYMid slice',     // Scale to cover entire cell, may crop
-            'fill': 'none'                 // Stretch to fill entire cell
-        };
-        
-        // Create image element using SVG native scaling
+        // Create image element with different handling for cover mode
         const imageEl = document.createElementNS('http://www.w3.org/2000/svg', 'image');
         imageEl.setAttribute('href', cellData.image.src);
-        imageEl.setAttribute('x', imgX);
-        imageEl.setAttribute('y', imgY);
-        imageEl.setAttribute('width', imgWidth);
-        imageEl.setAttribute('height', imgHeight);
         imageEl.setAttribute('clip-path', `url(#${clipId})`);
-        imageEl.setAttribute('preserveAspectRatio', preserveAspectRatioMap[cellData.fillMode] || preserveAspectRatioMap['contain']);
         imageEl.style.cursor = 'pointer';
         
-        // Add click handler for cycling fill mode
-        imageEl.addEventListener('click', (e) => {
-            e.stopPropagation();
-            cycleFillMode(cellIndex);
-        });
+        if (cellData.fillMode === 'cover') {
+            // For cover mode, implement custom scaling and positioning with transforms
+            const imageAspect = cellData.image.width / cellData.image.height;
+            const cellAspect = imgWidth / imgHeight;
+            
+            let baseWidth, baseHeight;
+            if (imageAspect > cellAspect) {
+                // Image is wider than cell - scale to fill height
+                baseHeight = imgHeight;
+                baseWidth = baseHeight * imageAspect;
+            } else {
+                // Image is taller than cell - scale to fill width
+                baseWidth = imgWidth;
+                baseHeight = baseWidth / imageAspect;
+            }
+            
+            // Apply user transforms
+            const transform = cellData.transform || { scale: 1, translateX: 0, translateY: 0 };
+            const finalWidth = baseWidth * transform.scale;
+            const finalHeight = baseHeight * transform.scale;
+            
+            // Center the image in the cell and apply user translation
+            const centerX = imgX + imgWidth / 2;
+            const centerY = imgY + imgHeight / 2;
+            const finalX = centerX - finalWidth / 2 + transform.translateX;
+            const finalY = centerY - finalHeight / 2 + transform.translateY;
+            
+            imageEl.setAttribute('x', finalX);
+            imageEl.setAttribute('y', finalY);
+            imageEl.setAttribute('width', finalWidth);
+            imageEl.setAttribute('height', finalHeight);
+            imageEl.setAttribute('preserveAspectRatio', 'none'); // We handle aspect ratio manually
+            
+            // Setup interactive behavior for cover mode
+            setupImageInteraction(imageEl, cellIndex, { x: imgX, y: imgY, width: imgWidth, height: imgHeight });
+            
+        } else {
+            // Standard behavior for contain and fill modes
+            const preserveAspectRatioMap = {
+                'contain': 'xMidYMid meet',    // Scale to fit entirely within cell
+                'fill': 'none'                 // Stretch to fill entire cell
+            };
+            
+            imageEl.setAttribute('x', imgX);
+            imageEl.setAttribute('y', imgY);
+            imageEl.setAttribute('width', imgWidth);
+            imageEl.setAttribute('height', imgHeight);
+            imageEl.setAttribute('preserveAspectRatio', preserveAspectRatioMap[cellData.fillMode] || preserveAspectRatioMap['contain']);
+            
+            // Add click handler for cycling fill mode
+            imageEl.addEventListener('click', (e) => {
+                e.stopPropagation();
+                cycleFillMode(cellIndex);
+            });
+        }
         
         cellGroup.appendChild(imageEl);
         
-        // Add fill mode indicator
+        // Add fill mode indicator with enhanced text for cover mode
         const indicatorText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         indicatorText.setAttribute('x', cellX + 2);
         indicatorText.setAttribute('y', cellY + 8);
         indicatorText.setAttribute('font-family', 'monospace');
         indicatorText.setAttribute('font-size', '6');
         indicatorText.setAttribute('fill', '#666');
-        indicatorText.textContent = cellData.fillMode;
+        
+        if (cellData.fillMode === 'cover') {
+            // Ensure transform exists (backward compatibility)
+            if (!cellData.transform) {
+                cellData.transform = { scale: 1, translateX: 0, translateY: 0 };
+            }
+            const transform = cellData.transform;
+            indicatorText.textContent = `${cellData.fillMode} (${transform.scale.toFixed(1)}x) - drag/zoom`;
+        } else {
+            indicatorText.textContent = cellData.fillMode;
+        }
+        
         cellGroup.appendChild(indicatorText);
         
         // Add remove button (small circle with X)
@@ -678,6 +896,44 @@ function renderSVGCell(cellGroup, cellIndex, cellX, cellY, cellWidth, cellHeight
         });
         
         cellGroup.appendChild(removeBtn);
+        
+        // Add reset button for cover mode (small circle with reset icon)
+        if (cellData.fillMode === 'cover') {
+            const resetBtn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            resetBtn.style.cursor = 'pointer';
+            
+            const resetBtnCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            resetBtnCircle.setAttribute('cx', cellX + cellWidth - 8);
+            resetBtnCircle.setAttribute('cy', cellY + cellHeight - 8);
+            resetBtnCircle.setAttribute('r', '6');
+            resetBtnCircle.setAttribute('fill', 'rgba(13, 110, 253, 0.9)');
+            resetBtnCircle.setAttribute('stroke', 'white');
+            resetBtnCircle.setAttribute('stroke-width', '1');
+            
+            const resetBtnText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            resetBtnText.setAttribute('x', cellX + cellWidth - 8);
+            resetBtnText.setAttribute('y', cellY + cellHeight - 8);
+            resetBtnText.setAttribute('text-anchor', 'middle');
+            resetBtnText.setAttribute('dominant-baseline', 'central');
+            resetBtnText.setAttribute('font-family', 'monospace');
+            resetBtnText.setAttribute('font-size', '8');
+            resetBtnText.setAttribute('fill', 'white');
+            resetBtnText.setAttribute('font-weight', 'bold');
+            resetBtnText.textContent = '⟲';
+            
+            resetBtn.appendChild(resetBtnCircle);
+            resetBtn.appendChild(resetBtnText);
+            
+            // Add click handler for reset button
+            resetBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                // Reset transform to default values
+                cellData.transform = { scale: 1, translateX: 0, translateY: 0 };
+                renderSVGSheet();
+            });
+            
+            cellGroup.appendChild(resetBtn);
+        }
         
     } else {
         // Empty cell - add placeholder text
@@ -841,11 +1097,8 @@ function selectGrid(cols, rows) {
             
             const userConfirmed = confirm(confirmMessage);
             if (!userConfirmed) {
-                console.log('Grid resize cancelled by user to prevent data loss');
                 return; // Don't proceed with grid change
             }
-            
-            console.log(`User confirmed grid resize with data loss: ${lostContentCount} pieces of content will be removed`);
         }
     }
     
@@ -856,9 +1109,7 @@ function selectGrid(cols, rows) {
     // Clear cells that are outside new grid (now with user consent)
     const totalCells = rows * cols;
     if (layoutState.cells.length > totalCells) {
-        const removedCells = layoutState.cells.slice(totalCells);
         layoutState.cells = layoutState.cells.slice(0, totalCells);
-        console.log(`Removed ${removedCells.length} cells from layout due to grid resize`);
     }
     
     updateSheetGrid();
@@ -957,11 +1208,3 @@ function hideLoading() {
     if (!elements.loading) return; // Safety check for early calls
     overlayManager.hide(elements.loading);
 }
-
-// Export for debugging
-window.PDFomator = {
-    layoutState,
-    CONFIG,
-    elements,
-    updateSheetGrid
-};
