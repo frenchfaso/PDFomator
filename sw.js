@@ -14,6 +14,34 @@ const STATIC_ASSETS = [
     'https://cdnjs.cloudflare.com/ajax/libs/jspdf/3.0.1/jspdf.umd.min.js'
 ];
 
+// Utility function to check if URL should be cached
+function shouldCache(url) {
+    const urlObj = new URL(url);
+    const isOwnOrigin = urlObj.origin === self.location.origin;
+    const isPicoCSS = urlObj.hostname === 'cdn.jsdelivr.net' && urlObj.pathname.includes('pico');
+    const isPDFJS = urlObj.hostname === 'cdn.jsdelivr.net' && urlObj.pathname.includes('pdfjs-dist');
+    const isJSPDF = urlObj.hostname === 'cdnjs.cloudflare.com' && urlObj.pathname.includes('jspdf');
+    
+    return isOwnOrigin || isPicoCSS || isPDFJS || isJSPDF;
+}
+
+// Utility function to manage cache size
+async function limitCacheSize(cacheName, maxEntries = 50) {
+    const cache = await caches.open(cacheName);
+    const keys = await cache.keys();
+    
+    if (keys.length > maxEntries) {
+        // Remove oldest entries (first in, first out)
+        const entriesToDelete = keys.slice(0, keys.length - maxEntries);
+        await Promise.all(
+            entriesToDelete.map(key => {
+                console.log('[SW] Removing old cache entry:', key.url);
+                return cache.delete(key);
+            })
+        );
+    }
+}
+
 // Install event - cache static assets
 self.addEventListener('install', event => {
     console.log('[SW] Install event');
@@ -22,14 +50,29 @@ self.addEventListener('install', event => {
         caches.open(CACHE_NAME)
             .then(cache => {
                 console.log('[SW] Caching static assets');
-                return cache.addAll(STATIC_ASSETS);
+                // Cache assets one by one to better handle failures
+                return Promise.allSettled(
+                    STATIC_ASSETS.map(url => 
+                        cache.add(url).catch(error => {
+                            console.warn('[SW] Failed to cache:', url, error);
+                            return null; // Continue with other assets
+                        })
+                    )
+                );
             })
-            .then(() => {
-                console.log('[SW] Assets cached successfully');
+            .then((results) => {
+                const failed = results.filter(result => result.status === 'rejected');
+                if (failed.length > 0) {
+                    console.warn('[SW] Some assets failed to cache:', failed.length);
+                } else {
+                    console.log('[SW] All assets cached successfully');
+                }
                 return self.skipWaiting();
             })
             .catch(error => {
-                console.error('[SW] Cache failed:', error);
+                console.error('[SW] Cache operation failed:', error);
+                // Still skip waiting to allow the new SW to activate
+                return self.skipWaiting();
             })
     );
 });
@@ -64,14 +107,8 @@ self.addEventListener('fetch', event => {
         return;
     }
     
-    // Allow specific CDN requests for our libraries
-    const url = new URL(event.request.url);
-    const isOwnOrigin = url.origin === self.location.origin;
-    const isPicoCSS = url.hostname === 'cdn.jsdelivr.net' && url.pathname.includes('pico');
-    const isPDFJS = url.hostname === 'cdn.jsdelivr.net' && url.pathname.includes('pdfjs-dist');
-    const isJSPDF = url.hostname === 'cdnjs.cloudflare.com' && url.pathname.includes('jspdf');
-    
-    if (!isOwnOrigin && !isPicoCSS && !isPDFJS && !isJSPDF) {
+    // Only handle requests we should cache
+    if (!shouldCache(event.request.url)) {
         return;
     }
     
@@ -86,12 +123,17 @@ self.addEventListener('fetch', event => {
                 console.log('[SW] Fetching from network:', event.request.url);
                 return fetch(event.request)
                     .then(response => {
-                        // Cache successful responses
+                        // Only cache successful responses
                         if (response.status === 200) {
                             const responseClone = response.clone();
                             caches.open(CACHE_NAME)
-                                .then(cache => {
-                                    cache.put(event.request, responseClone);
+                                .then(async cache => {
+                                    await cache.put(event.request, responseClone);
+                                    // Manage cache size to prevent unlimited growth
+                                    await limitCacheSize(CACHE_NAME);
+                                })
+                                .catch(error => {
+                                    console.warn('[SW] Failed to cache response:', error);
                                 });
                         }
                         return response;
@@ -100,12 +142,17 @@ self.addEventListener('fetch', event => {
                         console.error('[SW] Fetch failed:', error);
                         
                         // Return offline fallback for HTML requests
-                        if (event.request.headers.get('accept').includes('text/html')) {
+                        if (event.request.headers.get('accept')?.includes('text/html')) {
                             return caches.match('./index.html');
                         }
                         
+                        // For other resources, throw the error
                         throw error;
                     });
+            })
+            .catch(error => {
+                console.error('[SW] Cache match failed:', error);
+                return fetch(event.request);
             })
     );
 });

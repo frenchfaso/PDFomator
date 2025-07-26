@@ -92,11 +92,18 @@ function registerServiceWorker() {
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('./sw.js')
             .then(registration => {
-                // Service Worker registered successfully
+                console.log('[App] Service Worker registered successfully:', registration.scope);
+                
+                // Check for updates
+                registration.addEventListener('updatefound', () => {
+                    console.log('[App] Service Worker update found');
+                });
             })
             .catch(error => {
-                // Service Worker registration failed
+                console.error('[App] Service Worker registration failed:', error);
             });
+    } else {
+        console.log('[App] Service Worker not supported');
     }
 }
 
