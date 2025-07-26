@@ -548,8 +548,8 @@ function cycleFillMode(cellIndex) {
     const cellData = layoutState.cells[cellIndex];
     if (!cellData) return;
     
-    // Fill mode values to cycle through
-    const fillModes = ['contain', 'cover', 'fill', 'scale-down', 'none'];
+    // SVG native fill mode values to cycle through
+    const fillModes = ['contain', 'cover', 'fill'];
     const currentMode = cellData.fillMode || 'contain';
     const currentIndex = fillModes.indexOf(currentMode);
     const nextIndex = (currentIndex + 1) % fillModes.length;
@@ -609,22 +609,22 @@ function renderSVGCell(cellGroup, cellIndex, cellX, cellY, cellWidth, cellHeight
         defs.appendChild(clipPath);
         cellGroup.appendChild(defs);
         
-        // Calculate image placement based on fill mode
-        const placement = calculateImagePlacement(
-            { width: cellData.image.width, height: cellData.image.height },
-            { width: imgWidth, height: imgHeight },
-            cellData.fillMode
-        );
+        // Map fill modes to SVG preserveAspectRatio values
+        const preserveAspectRatioMap = {
+            'contain': 'xMidYMid meet',    // Scale to fit entirely within cell
+            'cover': 'xMidYMid slice',     // Scale to cover entire cell, may crop
+            'fill': 'none'                 // Stretch to fill entire cell
+        };
         
-        // Create image element
+        // Create image element using SVG native scaling
         const imageEl = document.createElementNS('http://www.w3.org/2000/svg', 'image');
         imageEl.setAttribute('href', cellData.image.src);
-        imageEl.setAttribute('x', imgX + placement.x);
-        imageEl.setAttribute('y', imgY + placement.y);
-        imageEl.setAttribute('width', placement.width);
-        imageEl.setAttribute('height', placement.height);
+        imageEl.setAttribute('x', imgX);
+        imageEl.setAttribute('y', imgY);
+        imageEl.setAttribute('width', imgWidth);
+        imageEl.setAttribute('height', imgHeight);
         imageEl.setAttribute('clip-path', `url(#${clipId})`);
-        imageEl.setAttribute('preserveAspectRatio', 'none'); // Direct control via placement calc
+        imageEl.setAttribute('preserveAspectRatio', preserveAspectRatioMap[cellData.fillMode] || preserveAspectRatioMap['contain']);
         imageEl.style.cursor = 'pointer';
         
         // Add click handler for cycling fill mode
@@ -958,95 +958,6 @@ function hideLoading() {
     overlayManager.hide(elements.loading);
 }
 
-// Helper function to calculate image placement based on object-fit
-function calculateImagePlacement(imgDimensions, cellDimensions, objectFit) {
-    const imgAspect = imgDimensions.width / imgDimensions.height;
-    const cellAspect = cellDimensions.width / cellDimensions.height;
-    
-    // DPI conversion factors:
-    // Browser CSS: 96 DPI = 25.4mm ÷ 96 = 0.264583mm per pixel
-    // PDF default: 72 DPI = 25.4mm ÷ 72 = 0.352778mm per pixel
-    const browserDpiToMm = 25.4 / 96; // 0.264583 - matches CSS object-fit: none behavior
-    const pdfDpiToMm = 25.4 / 72; // 0.352778 - legacy for reference
-    
-    let width, height, x = 0, y = 0;
-    
-    switch (objectFit) {
-        case 'fill':
-            // Stretch to fill entire cell
-            width = cellDimensions.width;
-            height = cellDimensions.height;
-            break;
-            
-        case 'cover':
-            // Scale to cover entire cell, may crop
-            if (imgAspect > cellAspect) {
-                // Image is wider than cell - fit height and crop width
-                height = cellDimensions.height;
-                width = height * imgAspect;
-                x = (cellDimensions.width - width) / 2;
-            } else {
-                // Image is taller than cell - fit width and crop height
-                width = cellDimensions.width;
-                height = width / imgAspect;
-                y = (cellDimensions.height - height) / 2;
-            }
-            break;
-            
-        case 'none':
-            // Use browser DPI conversion to match DOM natural size in mm
-            width = imgDimensions.width * browserDpiToMm;
-            height = imgDimensions.height * browserDpiToMm;
-            x = (cellDimensions.width - width) / 2;
-            y = (cellDimensions.height - height) / 2;
-            break;
-            
-        case 'scale-down':
-            // Same as contain but never scale up beyond original size
-            if (imgAspect > cellAspect) {
-                width = cellDimensions.width;
-                height = width / imgAspect;
-            } else {
-                height = cellDimensions.height;
-                width = height * imgAspect;
-            }
-            
-            // Don't scale up beyond original size
-            const originalWidthMm = imgDimensions.width * pdfDpiToMm;
-            const originalHeightMm = imgDimensions.height * pdfDpiToMm;
-            
-            if (width > originalWidthMm) {
-                width = originalWidthMm;
-                height = originalHeightMm;
-            } else if (height > originalHeightMm) {
-                width = originalWidthMm;
-                height = originalHeightMm;
-            }
-            
-            x = (cellDimensions.width - width) / 2;
-            y = (cellDimensions.height - height) / 2;
-            break;
-            
-        case 'contain':
-        default:
-            // Scale to fit entirely within cell, maintain aspect ratio
-            if (imgAspect > cellAspect) {
-                // Image is wider than cell - fit width
-                width = cellDimensions.width;
-                height = width / imgAspect;
-                y = (cellDimensions.height - height) / 2;
-            } else {
-                // Image is taller than cell - fit height
-                height = cellDimensions.height;
-                width = height * imgAspect;
-                x = (cellDimensions.width - width) / 2;
-            }
-            break;
-    }
-    
-    return { x, y, width, height };
-}
-
 // Export for debugging
 window.PDFomator = {
     layoutState,
@@ -1054,16 +965,3 @@ window.PDFomator = {
     elements,
     updateSheetGrid
 };
-
-// TODO: Future enhancements
-// - Pinch-to-zoom on mobile devices  
-// - Dark mode theme toggle
-// - Custom paper sizes
-// - Page rotation controls
-// - Batch processing of multiple PDFs
-// - Cloud storage integration
-// - Annotation tools
-// - Print optimization
-// - Template saving/loading
-
-// End of file

@@ -3,30 +3,22 @@
     --fab-size: 56px;
     --fab-bg: #007acc;
     --fab-hover: #005fa3;
-    --sheet-bg: #ffffff;
-    --sheet-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    --grid-bg: rgba(0, 122, 204, 0.1);
-    --grid-hover: rgba(0, 122, 204, 0.3);
     --border-radius: 8px;
     --border-radius-small: 4px;
     
-    /* New utility variables */
+    /* Utility variables */
     --primary-blue: #2196f3;
     --primary-blue-light: #e3f2fd;
     --primary-blue-dark: #1976d2;
     --gray-light: #f8f9fa;
     --gray-border: #e9ecef;
-    --gray-border-light: #ddd;
     --gray-medium: #6c757d;
     --gray-dark: #5a6268;
-    --gray-text: #666;
     --shadow-overlay: 0 4px 20px rgba(0,0,0,0.2);
-    --shadow-sheet: 0 2px 8px rgba(0,0,0,0.1);
     --shadow-fab: 0 4px 12px rgba(0, 0, 0, 0.2);
     --shadow-fab-hover: 0 6px 16px rgba(0, 0, 0, 0.3);
     --backdrop-blur: blur(4px);
     --transition-base: all 0.2s ease;
-    --error-bg: rgba(255, 0, 0, 0.8);
 }
 
 /* Reset and base layout */
@@ -300,10 +292,10 @@ body {
 .size-preview {
     width: 60px;
     height: 60px;
-    background: var(--sheet-bg);
+    background: white;
     border: 2px solid var(--gray-border);
     border-radius: var(--border-radius-small);
-    box-shadow: var(--shadow-sheet);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     margin-bottom: 0.75rem;
     position: relative;
 }
@@ -361,20 +353,6 @@ body {
 
 .file-type-icon {
     font-size: 1.5rem;
-}
-
-.btn-secondary {
-    background: var(--pico-muted-border-color);
-    color: var(--pico-color);
-    border: none;
-    padding: 0.75rem 1.5rem;
-    border-radius: var(--border-radius);
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.btn-secondary:hover {
-    background: var(--pico-secondary-background);
 }
 
 /* PDF Page Selector Overlay */
@@ -532,10 +510,10 @@ body {
     .size-preview {
         width: 50px !important;
         height: 50px !important;
-        background: var(--sheet-bg);
+        background: white;
         border: 2px solid var(--gray-border);
         border-radius: var(--border-radius-small);
-        box-shadow: var(--shadow-sheet);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         margin-bottom: 0.5rem;
         position: relative;
     }
@@ -580,8 +558,5 @@ body {
 
 /* Dark mode support */
 @media (prefers-color-scheme: dark) {
-    :root {
-        --sheet-bg: #2e2e2e;
-        --sheet-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-    }
+    /* Dark mode variables can be added here if needed */
 }
