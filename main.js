@@ -94,16 +94,88 @@ function registerServiceWorker() {
             .then(registration => {
                 console.log('[App] Service Worker registered successfully:', registration.scope);
                 
+                // Get and display version from service worker
+                getServiceWorkerVersion();
+                
                 // Check for updates
                 registration.addEventListener('updatefound', () => {
                     console.log('[App] Service Worker update found');
+                    // Get updated version when service worker updates
+                    setTimeout(() => getServiceWorkerVersion(), 1000);
                 });
             })
             .catch(error => {
                 console.error('[App] Service Worker registration failed:', error);
             });
+            
+        // Listen for service worker controller changes
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            console.log('[App] Service Worker controller changed');
+            getServiceWorkerVersion();
+        });
     } else {
         console.log('[App] Service Worker not supported');
+    }
+}
+
+async function getServiceWorkerVersion() {
+    console.log('[App] Attempting to get version from service worker');
+    
+    if (!('serviceWorker' in navigator)) {
+        console.log('[App] Service Worker not supported');
+        return;
+    }
+    
+    // Try to get version from active service worker
+    const serviceWorker = navigator.serviceWorker.controller || navigator.serviceWorker.active;
+    
+    if (!serviceWorker) {
+        console.log('[App] No active service worker found, retrying in 500ms...');
+        // Retry after a short delay
+        setTimeout(() => getServiceWorkerVersion(), 500);
+        return;
+    }
+    
+    try {
+        const messageChannel = new MessageChannel();
+        
+        // Promise to handle the response with timeout
+        const versionPromise = new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                reject(new Error('Timeout waiting for version response'));
+            }, 3000);
+            
+            messageChannel.port1.onmessage = (event) => {
+                clearTimeout(timeout);
+                resolve(event.data.version);
+            };
+        });
+        
+        // Send message to service worker
+        serviceWorker.postMessage(
+            { type: 'GET_VERSION' },
+            [messageChannel.port2]
+        );
+        
+        const version = await versionPromise;
+        console.log('[App] Received version from service worker:', version);
+        updateVersionDisplay(version);
+    } catch (error) {
+        console.warn('[App] Failed to get version from service worker:', error);
+        // Fallback: show a default version or retry
+        setTimeout(() => getServiceWorkerVersion(), 1000);
+    }
+}
+
+function updateVersionDisplay(cacheVersion) {
+    const versionElement = document.getElementById('version');
+    if (versionElement && cacheVersion) {
+        // Extract version from cache name (e.g., 'pdfomator-v1.0.2' -> 'v1.0.2')
+        const version = cacheVersion.split('-').pop();
+        versionElement.textContent = version;
+        console.log('[App] Version displayed:', version);
+    } else {
+        console.log('[App] Version element not found or no cache version provided');
     }
 }
 
