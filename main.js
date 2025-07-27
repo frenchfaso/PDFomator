@@ -489,8 +489,8 @@ async function processImageFileForCell(file, cellIndex) {
                     // Draw the bitmap onto the canvas
                     ctx.drawImage(bitmap, 0, 0);
                     
-                    // Convert to data URL (JPEG with high quality for good compression)
-                    const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+                    // Convert to data URL (PNG for lossless quality preservation)
+                    const dataUrl = canvas.toDataURL('image/png');
                     
                     // Create a new image with the data URL
                     const persistentImg = new Image();
@@ -712,6 +712,86 @@ function cycleFillMode(cellIndex) {
     renderSVGSheet();
 }
 
+// Rotate image 90 degrees clockwise
+function rotateImage(cellIndex) {
+    const cellData = layoutState.cells[cellIndex];
+    if (!cellData?.image) return;
+    
+    // Ensure transform exists (backward compatibility)
+    if (!cellData.transform) {
+        cellData.transform = { scale: 1, translateX: 0, translateY: 0 };
+    }
+    
+    // Rotate the actual image data
+    rotateImageData(cellData.image).then(rotatedImageData => {
+        // Replace the image data with the rotated version
+        cellData.image = rotatedImageData;
+        
+        // Reset transforms since we've physically rotated the image
+        cellData.transform.scale = 1;
+        cellData.transform.translateX = 0;
+        cellData.transform.translateY = 0;
+        
+        // Re-render the sheet to show the rotation
+        renderSVGSheet();
+    }).catch(error => {
+        console.error('Failed to rotate image:', error);
+        alert('Failed to rotate image. Please try again.');
+    });
+}
+
+// Function to rotate image data 90 degrees clockwise
+async function rotateImageData(imageData) {
+    return new Promise((resolve, reject) => {
+        try {
+            // Create a canvas with swapped dimensions (90° rotation)
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Swap width and height for 90° rotation
+            canvas.width = imageData.height;
+            canvas.height = imageData.width;
+            
+            // Apply rotation transform
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.rotate(Math.PI / 2); // 90 degrees in radians
+            ctx.translate(-imageData.width / 2, -imageData.height / 2);
+            
+            // Create image element from existing data
+            const img = new Image();
+            img.onload = () => {
+                try {
+                    // Draw the rotated image
+                    ctx.drawImage(img, 0, 0, imageData.width, imageData.height);
+                    
+                    // Convert back to data URL (PNG for lossless quality preservation)
+                    const rotatedDataURL = canvas.toDataURL('image/png');
+                    
+                    // Create new image object with rotated data
+                    const rotatedImg = new Image();
+                    rotatedImg.onload = () => {
+                        resolve({
+                            src: rotatedDataURL,
+                            width: rotatedImg.naturalWidth,
+                            height: rotatedImg.naturalHeight
+                        });
+                    };
+                    rotatedImg.onerror = () => reject(new Error('Failed to create rotated image'));
+                    rotatedImg.src = rotatedDataURL;
+                    
+                } catch (error) {
+                    reject(error);
+                }
+            };
+            img.onerror = () => reject(new Error('Failed to load image for rotation'));
+            img.src = imageData.src;
+            
+        } catch (error) {
+            reject(error);
+        }
+    });
+}
+
 // Interactive image transform functions for cover mode
 function setupImageInteraction(imageEl, cellIndex, cellBounds) {
     try {
@@ -871,12 +951,29 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
         e.preventDefault();
         e.stopPropagation();
         
-        const scaleChange = e.deltaY < 0 ? 1.1 : 0.9;
         const currentScale = cellData.transform.scale;
-        const newScale = Math.max(0.5, Math.min(3, currentScale * scaleChange));
+        
+        // Non-linear zoom that slows down at extremes
+        // Use different acceleration based on current zoom level
+        let zoomStep;
+        if (currentScale < 1) {
+            // Much slower zoom when zoomed out (0.2 - 1.0) for precise control
+            zoomStep = 0.01 + (currentScale - 0.2) * 0.025; // 0.01 to 0.03
+        } else if (currentScale > 3) {
+            // Much slower zoom when highly zoomed in (3.0 - 5.0)
+            zoomStep = 0.05 - (currentScale - 3) * 0.015; // 0.05 to 0.02
+        } else {
+            // Normal zoom in the middle range (1.0 - 3.0)
+            zoomStep = 0.05;
+        }
+        
+        const direction = e.deltaY < 0 ? 1 : -1;
+        const newScale = Math.max(0.2, Math.min(5, currentScale + (direction * zoomStep)));
         
         cellData.transform.scale = newScale;
-        renderSVGSheet();
+        
+        // Only update the specific cell, not the entire sheet
+        updateSingleCell(cellIndex);
     }
     
     function updateTransform(deltaX, deltaY, scaleChange) {
@@ -889,18 +986,43 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
             const svgDeltaX = (deltaX / rect.width) * layoutState.sheet.width;
             const svgDeltaY = (deltaY / rect.height) * layoutState.sheet.height;
             
-            // For smooth scaling, use the start transform scale as base
-            const newScale = Math.max(0.5, Math.min(3, startTransform.scale * scaleChange));
+            // Apply non-linear scaling similar to wheel zoom for pinch gestures
+            let newScale;
+            if (scaleChange !== 1) {
+                // For pinch gestures, convert multiplicative change to additive with non-linear steps
+                const currentScale = startTransform.scale;
+                const scaleDelta = (scaleChange - 1) * currentScale;
+                
+                // Apply non-linear damping based on current zoom level
+                let dampingFactor;
+                if (currentScale < 1) {
+                    // Much slower scaling when zoomed out for precise control
+                    dampingFactor = 0.15 + (currentScale - 0.2) * 0.25; // 0.15 to 0.35
+                } else if (currentScale > 3) {
+                    // Much slower scaling when highly zoomed in
+                    dampingFactor = 0.5 - (currentScale - 3) * 0.15; // 0.5 to 0.2
+                } else {
+                    // Normal scaling in middle range
+                    dampingFactor = 0.5;
+                }
+                
+                newScale = Math.max(0.2, Math.min(5, currentScale + (scaleDelta * dampingFactor)));
+            } else {
+                newScale = startTransform.scale;
+            }
+            
             const newTranslateX = startTransform.translateX + svgDeltaX;
             const newTranslateY = startTransform.translateY + svgDeltaY;
             
+            // Update transform
             cellData.transform = {
                 scale: newScale,
                 translateX: newTranslateX,
                 translateY: newTranslateY
             };
             
-            renderSVGSheet();
+            // Only update the specific cell, not the entire sheet
+            updateSingleCell(cellIndex);
         } catch (error) {
             console.error('Cover mode: Error updating transform', error);
         }
@@ -921,6 +1043,71 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
     } catch (error) {
         // Silently handle setup errors
     }
+}
+
+// Efficient single cell update function for smooth interactions
+function updateSingleCell(cellIndex) {
+    const svg = elements.sheet.querySelector('svg');
+    if (!svg) {
+        // Fallback to full render if SVG doesn't exist
+        renderSVGSheet();
+        return;
+    }
+    
+    const contentLayer = svg.querySelector('#content-layer');
+    const uiLayer = svg.querySelector('#ui-layer');
+    
+    if (!contentLayer || !uiLayer) {
+        // Fallback to full render if layers don't exist
+        renderSVGSheet();
+        return;
+    }
+    
+    // Calculate grid dimensions
+    const { width, height } = layoutState.sheet;
+    const { rows, cols } = layoutState.grid;
+    
+    const gridSpacing = {
+        sheetPadding: { top: 10, right: 10, bottom: 10, left: 10 },
+        columnGap: 5,
+        rowGap: 5,
+        cellPadding: 2
+    };
+    
+    const availableWidth = width - gridSpacing.sheetPadding.left - gridSpacing.sheetPadding.right;
+    const availableHeight = height - gridSpacing.sheetPadding.top - gridSpacing.sheetPadding.bottom;
+    const totalGapWidth = gridSpacing.columnGap * (cols - 1);
+    const totalGapHeight = gridSpacing.rowGap * (rows - 1);
+    
+    const cellWidth = (availableWidth - totalGapWidth) / cols;
+    const cellHeight = (availableHeight - totalGapHeight) / rows;
+    
+    // Calculate this cell's position
+    const row = Math.floor(cellIndex / cols);
+    const col = cellIndex % cols;
+    const cellX = gridSpacing.sheetPadding.left + col * (cellWidth + gridSpacing.columnGap);
+    const cellY = gridSpacing.sheetPadding.top + row * (cellHeight + gridSpacing.rowGap);
+    
+    // Find and remove existing cell elements
+    const existingContentCell = contentLayer.querySelector(`[data-cell-index="${cellIndex}"]`);
+    const existingUICell = uiLayer.querySelector(`[data-cell-index="${cellIndex}"]`);
+    
+    if (existingContentCell) existingContentCell.remove();
+    if (existingUICell) existingUICell.remove();
+    
+    // Create new cell groups
+    const cellContentGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    cellContentGroup.setAttribute('data-cell-index', cellIndex);
+    
+    const cellUIGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    cellUIGroup.setAttribute('data-cell-index', cellIndex);
+    
+    // Render the updated cell
+    renderSVGCell(cellContentGroup, cellUIGroup, cellIndex, cellX, cellY, cellWidth, cellHeight, gridSpacing.cellPadding);
+    
+    // Add back to DOM
+    contentLayer.appendChild(cellContentGroup);
+    uiLayer.appendChild(cellUIGroup);
 }
 
 function updateSheetSize() {
@@ -978,6 +1165,9 @@ function renderSVGCell(cellContentGroup, cellUIGroup, cellIndex, cellX, cellY, c
         
         if (cellData.fillMode === 'cover') {
             // For cover mode, implement custom scaling and positioning with transforms
+            const transform = cellData.transform || { scale: 1, translateX: 0, translateY: 0 };
+            
+            // Use the current image dimensions (already rotated if needed)
             const imageAspect = cellData.image.width / cellData.image.height;
             const cellAspect = imgWidth / imgHeight;
             
@@ -993,7 +1183,6 @@ function renderSVGCell(cellContentGroup, cellUIGroup, cellIndex, cellX, cellY, c
             }
             
             // Apply user transforms
-            const transform = cellData.transform || { scale: 1, translateX: 0, translateY: 0 };
             const finalWidth = baseWidth * transform.scale;
             const finalHeight = baseHeight * transform.scale;
             
@@ -1101,6 +1290,41 @@ function renderSVGCell(cellContentGroup, cellUIGroup, cellIndex, cellX, cellY, c
         
         cellUIGroup.appendChild(removeBtn);
         
+        // Add rotation button (circle with rotate icon in bottom-left corner, inside cell)
+        const rotateBtn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        rotateBtn.style.cursor = 'pointer';
+        
+        const rotateBtnCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        rotateBtnCircle.setAttribute('cx', cellX + 12);
+        rotateBtnCircle.setAttribute('cy', cellY + cellHeight - 12);
+        rotateBtnCircle.setAttribute('r', '12');
+        rotateBtnCircle.setAttribute('fill', 'rgba(255, 193, 7, 0.9)'); // Yellow/orange color
+        rotateBtnCircle.setAttribute('stroke', 'white');
+        rotateBtnCircle.setAttribute('stroke-width', '2');
+        
+        // Rotation arrow icon (⟲ Unicode character)
+        const rotateBtnText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        rotateBtnText.setAttribute('x', cellX + 12);
+        rotateBtnText.setAttribute('y', cellY + cellHeight - 12);
+        rotateBtnText.setAttribute('text-anchor', 'middle');
+        rotateBtnText.setAttribute('dominant-baseline', 'central');
+        rotateBtnText.setAttribute('font-family', 'monospace');
+        rotateBtnText.setAttribute('font-size', '14');
+        rotateBtnText.setAttribute('fill', 'white');
+        rotateBtnText.setAttribute('font-weight', 'bold');
+        rotateBtnText.textContent = '↻';
+        
+        rotateBtn.appendChild(rotateBtnCircle);
+        rotateBtn.appendChild(rotateBtnText);
+        
+        // Add click handler for rotation button
+        rotateBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            rotateImage(cellIndex);
+        });
+        
+        cellUIGroup.appendChild(rotateBtn);
+        
         // Add reset button for cover mode (circle with reset icon in bottom-right corner, inside cell)
         if (cellData.fillMode === 'cover') {
             const resetBtn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -1123,7 +1347,7 @@ function renderSVGCell(cellContentGroup, cellUIGroup, cellIndex, cellX, cellY, c
             resetBtnText.setAttribute('font-size', '14');
             resetBtnText.setAttribute('fill', 'white');
             resetBtnText.setAttribute('font-weight', 'bold');
-            resetBtnText.textContent = '⟲';
+            resetBtnText.textContent = '←';
             
             resetBtn.appendChild(resetBtnCircle);
             resetBtn.appendChild(resetBtnText);
