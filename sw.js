@@ -1,7 +1,7 @@
 // PDFomator Service Worker
 // Simple offline cache for static assets
 
-const CACHE_NAME = 'pdfomator-v1.1.0';
+const CACHE_NAME = 'pdfomator-v1.2.0';
 const STATIC_ASSETS = [
     './',
     './index.html',

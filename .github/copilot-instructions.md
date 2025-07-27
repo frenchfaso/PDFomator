@@ -57,7 +57,8 @@ PDFomator is a minimal Progressive Web App (PWA) designed for mobile-first usage
 - **Rendering System**: Pure SVG rendering with native Canvas API integration for PDF-to-bitmap conversion
 - **UI Controllers**: Overlay management with backdrop blur, responsive modal dialogs, FAB interactions
 - **Image Manipulation**: Multi-mode image fitting (contain, cover, fill) with pan/zoom for cover mode
-- **Touch Interaction**: Single-finger pan, two-finger pinch-to-zoom, wheel zoom for desktop
+- **Image Rotation**: Physical 90° clockwise rotation with PNG quality preservation and persistent rotation through mode changes
+- **Touch Interaction**: Single-finger pan, two-finger pinch-to-zoom, non-linear wheel zoom (0.2x-5x range) for desktop
 
 ### Current State Management Pattern
 - Object-based state in `layoutState` global variable with nested structure
@@ -72,6 +73,7 @@ PDFomator is a minimal Progressive Web App (PWA) designed for mobile-first usage
 - Immediate visual feedback for user interactions with CSS transitions
 - Progressive disclosure through multi-step file selection workflow
 - Touch-optimized gestures: pan/zoom for image positioning in cover mode
+- 90° clockwise rotation button (yellow ↻ icon) in bottom-left corner of each cell
 - Click-to-cycle UI pattern for image fill mode switching
 - Visual indicators for fill modes with interactive hints
 - Graceful loading states with spinner animations and descriptive messages
@@ -145,19 +147,23 @@ PDFomator is a minimal Progressive Web App (PWA) designed for mobile-first usage
 - **overlayManager**: Utility for showing/hiding modal overlays with backdrop
 - **PDF Processing**: PDF.js worker setup, page rendering to canvas/bitmap, thumbnail generation
 - **SVG Rendering**: Complete SVG-based sheet rendering with precise mm calculations
-- **Touch Interactions**: Pan/zoom for cover mode, single/multi-touch handling
+- **Touch Interactions**: Pan/zoom for cover mode, single/multi-touch handling with non-linear zoom
+- **Image Rotation**: Physical rotation system with PNG quality preservation
 - **Export Pipeline**: Complete jsPDF integration with quality options and canvas rasterization
+- **Performance Optimization**: Single cell update system for smooth interactions
 
 ### Key Technical Features Implemented
 - SVG-based grid layout system with mm precision (210x297 A4, 297x420 A3)
 - Image fill modes: contain (fit), cover (fill+crop+interactive), fill (stretch)
-- Interactive transforms for cover mode: scale (0.5-3x), translateX/Y (unlimited)
+- Physical 90° clockwise image rotation with PNG quality preservation throughout manipulation chain
+- Interactive transforms for cover mode: scale (0.2x-5x), translateX/Y (unlimited) with non-linear zoom control
 - Sequential PDF page thumbnail generation with cancellation support
 - Canvas-to-bitmap conversion for persistent image storage
-- Touch gesture handling: single-finger pan, two-finger pinch-to-zoom
+- Touch gesture handling: single-finger pan, two-finger pinch-to-zoom with adaptive zoom steps
 - Keyboard shortcuts: ESC (close overlays), Ctrl/Cmd+E (export)
 - Quality-based PDF export: Standard (4.0x scale) and HD (6.0x scale) options
 - Complete jsPDF integration with canvas rasterization pipeline
+- Performance optimization: Single cell updates during interactions to prevent lag
 
 ### State Management Pattern
 ```javascript
@@ -167,6 +173,12 @@ layoutState = {
     cells: [{ image: {src, width, height}, title, fillMode, transform: {scale, translateX, translateY} }]
 }
 ```
+
+### Rotation Implementation
+- **rotateImageData()**: Physical 90° clockwise rotation using canvas transforms with dimension swapping
+- **PNG Pipeline**: Lossless quality preservation throughout all image manipulations until final PDF export
+- **UI Integration**: Yellow rotation button (↻) in bottom-left corner of each cell with visual feedback
+- **State Management**: Clean transform objects with only scale, translateX, translateY (no rotation field)
 
 ### Service Worker (sw.js v1.1.0)
 - Cache name: 'pdfomator-v1.1.0'
@@ -193,6 +205,14 @@ layoutState = {
 - Functions focused on single responsibilities with descriptive names
 - Proper event cleanup and memory management (bitmap.close(), removeEventListener)
 
+## Current Feature Status
+- ✅ **Rotation Feature**: Complete with physical 90° clockwise rotation and PNG pipeline
+- ✅ **Touch Interactions**: Non-linear zoom control with optimized performance (0.2x-5x range)
+- ✅ **Export System**: Full jsPDF integration with quality options working perfectly
+- ✅ **Performance**: Single cell updates implemented for smooth multi-cell interactions
+- ✅ **Code Quality**: All legacy rotation code removed, clean transform objects
+- ✅ **Production Ready**: Comprehensive testing completed, all features stable
+
 ## Testing Strategy
 - Manual testing on target mobile devices (iOS Safari, Chrome Android)
 - Cross-browser compatibility testing with ES6+ support
@@ -201,4 +221,12 @@ layoutState = {
 - Touch interaction testing for pan/zoom gestures
 - File format validation and error handling testing
 
-When working on this project, prioritize maintaining the SVG-based rendering system, preserve the mobile-first touch interactions, and ensure all features continue to work offline. All core functionality is now fully implemented and production-ready. Focus on performance optimizations, bug fixes, and user experience improvements rather than major feature additions.
+When working on this project, prioritize maintaining the SVG-based rendering system, preserve the mobile-first touch interactions, and ensure all features continue to work offline. All core functionality including the new rotation feature is now fully implemented and production-ready. The app has undergone comprehensive testing and code cleanup. Focus on performance optimizations, bug fixes, and user experience improvements rather than major feature additions.
+
+## Key Implementation Notes for Future Development
+- **Rotation System**: Always use physical image rotation via `rotateImageData()` - never SVG transforms for rotation
+- **PNG Pipeline**: Maintain lossless quality by using PNG format throughout manipulation chain until final export
+- **Performance**: Use `updateSingleCell()` for individual cell updates instead of full sheet re-renders
+- **Transform Objects**: Keep transform objects clean with only {scale, translateX, translateY} - no rotation field
+- **Non-Linear Zoom**: Zoom steps are adaptive based on current scale level for natural user experience
+- **Touch Gestures**: Single-finger pan, two-finger pinch-to-zoom with proper touch identifier tracking
