@@ -172,7 +172,7 @@ body {
 }
 
 /* Overlay base styles */
-.grid-overlay, .size-overlay, .file-type-overlay, .page-selector-overlay {
+.grid-overlay, .size-overlay, .file-type-overlay, .page-selector-overlay, .export-overlay {
     position: fixed;
     top: 0;
     left: 0;
@@ -187,7 +187,7 @@ body {
 }
 
 /* Picker containers */
-.grid-picker, .size-picker, .file-type-picker, .page-selector {
+.grid-picker, .size-picker, .file-type-picker, .page-selector, .overlay-content {
     background: white;
     padding: 2rem;
     border-radius: var(--border-radius);
@@ -375,6 +375,60 @@ body {
 }
 
 .btn-cancel:hover {
+    background: #4b5563;
+}
+
+/* Export overlay specific styles */
+.export-options {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin: 1.5rem 0;
+}
+
+.export-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1rem;
+    color: inherit;
+    padding: 1rem;
+    border-radius: var(--border-radius);
+    transition: all 0.2s ease;
+    cursor: pointer;
+    background: white;
+    border: 2px solid var(--pico-muted-border-color);
+    text-align: center;
+}
+
+.export-btn:hover {
+    background: #fee2e2;
+    border-color: var(--pico-primary);
+}
+
+.export-btn strong {
+    font-size: 1.1rem;
+    color: var(--pico-primary);
+}
+
+.export-btn small {
+    color: var(--pico-muted-color);
+    font-size: 0.85rem;
+}
+
+.cancel-btn {
+    margin-top: 1rem;
+    background: #6b7280;
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: var(--border-radius-small);
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.cancel-btn:hover {
     background: #4b5563;
 }
 
