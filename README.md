@@ -15,7 +15,7 @@ A client-side Progressive Web App that arranges multiple PDF pages and images in
 - **👆 Touch Controls** - Pan, zoom, and pinch gestures for precise positioning
 - **⌨️ Keyboard Shortcuts** - ESC to close dialogs, Ctrl/Cmd+E to export
 - **🗑️ Easy Management** - Click to remove content, reset transformations
-- **⬇️ High-Quality Export** - SVG-based rendering for crisp output
+- **⬇️ High-Quality Export** - Standard or HD quality PDF output
 - **🚫 No Server Required** - Runs entirely in your browser
 
 ## 📱 Quick Start
@@ -25,4 +25,11 @@ A client-side Progressive Web App that arranges multiple PDF pages and images in
 3. **Add**: Click any cell to add PDF pages or images
 4. **Adjust**: Click images to cycle fit modes, drag/pinch to position in cover mode
 5. **Size**: Click `📄` to change paper size/orientation
-6. **Export**: Click `⬇️` to download your arranged PDF
+6. **Export**: Click `⬇️` to choose quality and download your arranged PDF
+
+## 💡 Tips
+
+- **Fill Modes**: Click images to cycle between contain (fit), cover (fill+crop), and fill (stretch)
+- **Cover Mode**: In cover mode, use touch gestures to pan and zoom for perfect positioning
+- **Keyboard**: Press ESC to close dialogs, Ctrl/Cmd+E for quick export
+- **Quality**: Choose Standard for faster exports or HD for maximum quality

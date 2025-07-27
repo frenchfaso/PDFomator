@@ -85,7 +85,7 @@ PDFomator is a minimal Progressive Web App (PWA) designed for mobile-first usage
 - Minimal JavaScript bundle size through selective feature loading
 
 ## PWA Implementation
-- Comprehensive service worker (sw.js v6) for offline functionality
+- Comprehensive service worker (sw.js v1.1.0) for offline functionality
 - Cache-first strategy for static assets with specific CDN whitelisting:
   - Pico CSS from cdn.jsdelivr.net
   - PDF.js core and worker from cdn.jsdelivr.net
@@ -93,7 +93,7 @@ PDFomator is a minimal Progressive Web App (PWA) designed for mobile-first usage
 - Network-first for dynamic content with offline fallbacks
 - Complete manifest.json with SVG icons, screenshots, shortcuts
 - Installable on mobile devices with app-like experience
-- Background sync capabilities prepared for future export functionality
+- Background sync capabilities prepared for future enhancements
 
 ## Browser Compatibility
 - Modern browsers with ES6+ support
@@ -133,7 +133,7 @@ PDFomator is a minimal Progressive Web App (PWA) designed for mobile-first usage
 ## Current Implementation Details
 
 ### Dependency Management
-- Pico CSS v2: https://cdn.jsdelivr.net/npm/@picocss/pico@v2/css/pico.min.css
+- Pico CSS v2: https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.red.min.css
 - PDF.js 4.0.379: core and worker from cdn.jsdelivr.net (ES modules)
 - jsPDF 3.0.1: https://cdnjs.cloudflare.com/ajax/libs/jspdf/3.0.1/jspdf.umd.min.js
 - Service worker caches specific CDN URLs for offline functionality
@@ -141,10 +141,12 @@ PDFomator is a minimal Progressive Web App (PWA) designed for mobile-first usage
 ### Main Application Structure (main.js)
 - **layoutState**: Global state object with sheet{paperSize, orientation, width, height}, grid{cols, rows}, cells[]
 - **CONFIG**: Application constants including paperSizes, maxGridSize, pdfWorkerUrl
+- **EXPORT_QUALITY**: Quality configurations for SD (4.0x scale, 80% JPEG) and HD (6.0x scale, 90% JPEG) exports
 - **overlayManager**: Utility for showing/hiding modal overlays with backdrop
 - **PDF Processing**: PDF.js worker setup, page rendering to canvas/bitmap, thumbnail generation
 - **SVG Rendering**: Complete SVG-based sheet rendering with precise mm calculations
 - **Touch Interactions**: Pan/zoom for cover mode, single/multi-touch handling
+- **Export Pipeline**: Complete jsPDF integration with quality options and canvas rasterization
 
 ### Key Technical Features Implemented
 - SVG-based grid layout system with mm precision (210x297 A4, 297x420 A3)
@@ -154,6 +156,8 @@ PDFomator is a minimal Progressive Web App (PWA) designed for mobile-first usage
 - Canvas-to-bitmap conversion for persistent image storage
 - Touch gesture handling: single-finger pan, two-finger pinch-to-zoom
 - Keyboard shortcuts: ESC (close overlays), Ctrl/Cmd+E (export)
+- Quality-based PDF export: Standard (4.0x scale) and HD (6.0x scale) options
+- Complete jsPDF integration with canvas rasterization pipeline
 
 ### State Management Pattern
 ```javascript
@@ -164,18 +168,22 @@ layoutState = {
 }
 ```
 
-### Service Worker (sw.js v6)
-- Cache name: 'pdfomator-v6'
+### Service Worker (sw.js v1.1.0)
+- Cache name: 'pdfomator-v1.1.0'
 - Specific CDN whitelisting for Pico CSS, PDF.js, jsPDF
 - Cache-first strategy with network fallback
 - HTML fallback for offline navigation
-- Background sync preparation for export functionality
+- Cache size management to prevent unlimited growth
+- Production logging with error/warning levels
+- Background sync preparation for future enhancements
 
 ### Export System Status
-- SVG rendering fully implemented and functional
-- Export functionality marked as TODO - needs jsPDF integration
-- Canvas-based PDF generation pipeline ready for implementation
-- All cell content stored as persistent data URLs for export compatibility
+- ✅ **FULLY IMPLEMENTED**: Complete PDF export functionality with jsPDF integration
+- ✅ **Quality Options**: Standard (4.0x scale, 80% JPEG compression) and HD (6.0x scale, 90% JPEG compression)
+- ✅ **Canvas Rasterization**: Cell-by-cell canvas rendering with precise positioning
+- ✅ **SVG to PDF Pipeline**: Complete SVG layout to PDF conversion workflow
+- ✅ **Production Ready**: All export features tested and functional
+- All cell content stored as persistent data URLs for reliable export compatibility
 
 ## Code Quality Guidelines
 - ES6+ features: const/let, arrow functions, async/await, destructuring, template literals
@@ -193,4 +201,4 @@ layoutState = {
 - Touch interaction testing for pan/zoom gestures
 - File format validation and error handling testing
 
-When working on this project, prioritize the SVG-based rendering system, maintain the mobile-first touch interactions, and ensure all features work offline. The export functionality is the main missing piece - focus on integrating the existing SVG layout with jsPDF for PDF generation.
+When working on this project, prioritize maintaining the SVG-based rendering system, preserve the mobile-first touch interactions, and ensure all features continue to work offline. All core functionality is now fully implemented and production-ready. Focus on performance optimizations, bug fixes, and user experience improvements rather than major feature additions.
