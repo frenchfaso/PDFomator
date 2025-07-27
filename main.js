@@ -26,6 +26,20 @@ const CONFIG = {
     pdfWorkerUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.worker.mjs'
 };
 
+// Export quality configuration
+const EXPORT_QUALITY = {
+    SD: { 
+        scale: 4.0,        // 384 DPI (doubled)
+        jpegQuality: 0.8,  // 80% compression (improved)
+        label: 'Standard (Fast)'
+    },
+    HD: { 
+        scale: 6.0,        // 576 DPI (doubled)
+        jpegQuality: 0.9,  // 90% compression  
+        label: 'High Quality'
+    }
+};
+
 // Overlay management utilities
 const overlayManager = {
     show(element, onShow = null) {
@@ -258,6 +272,10 @@ function cacheElements() {
         pageSelector: document.getElementById('pageSelector'),
         pageGrid: document.getElementById('pageGrid'),
         cancelPageSelection: document.getElementById('cancelPageSelection'),
+        exportOverlay: document.getElementById('exportOverlay'),
+        exportSD: document.getElementById('exportSD'),
+        exportHD: document.getElementById('exportHD'),
+        cancelExport: document.getElementById('cancelExport'),
         loading: document.getElementById('loading')
     };
 }
@@ -320,6 +338,11 @@ function setupEventListeners() {
     });
     elements.cancelFileType.addEventListener('click', cancelFileTypeSelector);
     
+    // Export quality handlers
+    elements.exportSD.addEventListener('click', () => handleQualityExport('SD'));
+    elements.exportHD.addEventListener('click', () => handleQualityExport('HD'));
+    elements.cancelExport.addEventListener('click', hideExportOverlay);
+    
     // Cancel button handlers
     elements.cancelGrid.addEventListener('click', hideGridPicker);
     elements.cancelSize.addEventListener('click', hideSizePicker);
@@ -330,6 +353,7 @@ function setupEventListeners() {
     // Setup overlay background click handlers
     overlayManager.setupClickOutside(elements.gridOverlay, hideGridPicker);
     overlayManager.setupClickOutside(elements.sizeOverlay, hideSizePicker);
+    overlayManager.setupClickOutside(elements.exportOverlay, hideExportOverlay);
     overlayManager.setupClickOutside(elements.fileTypeSelector, cancelFileTypeSelector);
     overlayManager.setupClickOutside(elements.pageSelector, hidePageSelector);
     
@@ -350,6 +374,7 @@ function handleKeyboard(e) {
         hideSizePicker();
         cancelFileTypeSelector();
         hidePageSelector();
+        hideExportOverlay();
         hideLoading();
     }
     
@@ -379,16 +404,7 @@ async function handleExport() {
         return;
     }
     
-    showLoading('Preparing export...');
-    
-    try {
-        // TODO: Implement new export functionality
-        alert('Export functionality will be implemented soon!');
-    } catch (error) {
-        alert('Export failed. Please try again.');
-    } finally {
-        hideLoading();
-    }
+    showExportOverlay();
 }
 
 async function handlePDFSelection(e) {
@@ -449,7 +465,7 @@ async function processPDFFileForCell(file, cellIndex) {
     if (pdf.numPages === 1) {
         // Single page - process directly
         const page = await pdf.getPage(1);
-        const bitmap = await renderPDFPage(page, 2, 'bitmap');
+        const bitmap = await renderPDFPage(page, 10, 'bitmap');
         addToSpecificCell(bitmap, `${file.name} p1`, cellIndex);
     } else {
         // Multiple pages - show page selector
@@ -517,8 +533,8 @@ async function renderPDFPage(page, scale = 2, outputFormat = 'canvas') {
     }).promise;
     
     if (outputFormat === 'bitmap') {
-        // Convert to JPEG bitmap
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+        // Convert to PNG bitmap (lossless, avoid double JPEG compression)
+        const dataUrl = canvas.toDataURL('image/png');
         const bitmap = new Image();
         bitmap.src = dataUrl;
         return bitmap;
@@ -633,7 +649,7 @@ async function generateThumbnailsSequentially(pdf, fileName, cellIndex, pageGrid
 async function processSelectedPage(pdf, pageNum, fileName, cellIndex) {
     try {
         const selectedPage = await pdf.getPage(pageNum);
-        const bitmap = await renderPDFPage(selectedPage, 2, 'bitmap');
+        const bitmap = await renderPDFPage(selectedPage, 10, 'bitmap');
         addToSpecificCell(bitmap, `${fileName} p${pageNum}`, cellIndex);
     } catch (error) {
         alert('Failed to process selected page.');
@@ -930,7 +946,7 @@ function updateSheetSize() {
 }
 
 // SVG cell rendering function
-function renderSVGCell(cellGroup, cellIndex, cellX, cellY, cellWidth, cellHeight, cellPadding) {
+function renderSVGCell(cellContentGroup, cellUIGroup, cellIndex, cellX, cellY, cellWidth, cellHeight, cellPadding) {
     const cellData = layoutState.cells[cellIndex];
     
     if (cellData?.image) {
@@ -952,7 +968,7 @@ function renderSVGCell(cellGroup, cellIndex, cellX, cellY, cellWidth, cellHeight
         clipRect.setAttribute('height', imgHeight);
         clipPath.appendChild(clipRect);
         defs.appendChild(clipPath);
-        cellGroup.appendChild(defs);
+        cellContentGroup.appendChild(defs);
         
         // Create image element with different handling for cover mode
         const imageEl = document.createElementNS('http://www.w3.org/2000/svg', 'image');
@@ -1016,7 +1032,7 @@ function renderSVGCell(cellGroup, cellIndex, cellX, cellY, cellWidth, cellHeight
             });
         }
         
-        cellGroup.appendChild(imageEl);
+        cellContentGroup.appendChild(imageEl);
         
         // Add fill mode cycling button (circle with square icon in top-left corner, inside cell)
         const fillModeBtn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -1049,7 +1065,7 @@ function renderSVGCell(cellGroup, cellIndex, cellX, cellY, cellWidth, cellHeight
             cycleFillMode(cellIndex);
         });
         
-        cellGroup.appendChild(fillModeBtn);
+        cellUIGroup.appendChild(fillModeBtn);
         
         // Add remove button (circle with X in top-right corner, inside cell)
         const removeBtn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -1083,7 +1099,7 @@ function renderSVGCell(cellGroup, cellIndex, cellX, cellY, cellWidth, cellHeight
             removeCellContent(cellIndex);
         });
         
-        cellGroup.appendChild(removeBtn);
+        cellUIGroup.appendChild(removeBtn);
         
         // Add reset button for cover mode (circle with reset icon in bottom-right corner, inside cell)
         if (cellData.fillMode === 'cover') {
@@ -1120,10 +1136,21 @@ function renderSVGCell(cellGroup, cellIndex, cellX, cellY, cellWidth, cellHeight
                 renderSVGSheet();
             });
             
-            cellGroup.appendChild(resetBtn);
+            cellUIGroup.appendChild(resetBtn);
         }
         
     } else {
+        // Empty cell - add cell background for visual reference
+        const cellRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        cellRect.setAttribute('x', cellX);
+        cellRect.setAttribute('y', cellY);
+        cellRect.setAttribute('width', cellWidth);
+        cellRect.setAttribute('height', cellHeight);
+        cellRect.setAttribute('fill', '#f8f9fa');
+        cellRect.setAttribute('stroke', '#dee2e6');
+        cellRect.setAttribute('stroke-width', '0.5');
+        cellUIGroup.appendChild(cellRect);
+        
         // Empty cell - add subtle "+" button
         const addBtn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         addBtn.style.cursor = 'pointer';
@@ -1150,7 +1177,7 @@ function renderSVGCell(cellGroup, cellIndex, cellX, cellY, cellWidth, cellHeight
         addBtn.appendChild(addBtnCircle);
         addBtn.appendChild(addBtnText);
         
-        cellGroup.appendChild(addBtn);
+        cellUIGroup.appendChild(addBtn);
     }
 }
 
@@ -1171,7 +1198,15 @@ function renderSVGSheet() {
     svg.style.border = '1px solid #ccc';
     svg.style.background = 'white';
     
-    // Add sheet background
+    // Create content layer (for export)
+    const contentLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    contentLayer.setAttribute('id', 'content-layer');
+    
+    // Create UI layer (hidden during export)
+    const uiLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    uiLayer.setAttribute('id', 'ui-layer');
+    
+    // Add sheet background to content layer
     const sheetBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     sheetBg.setAttribute('x', '0');
     sheetBg.setAttribute('y', '0');
@@ -1180,7 +1215,7 @@ function renderSVGSheet() {
     sheetBg.setAttribute('fill', 'white');
     sheetBg.setAttribute('stroke', '#ddd');
     sheetBg.setAttribute('stroke-width', '0.5');
-    svg.appendChild(sheetBg);
+    contentLayer.appendChild(sheetBg);
     
     // Calculate grid spacing in mm (simplified - no CSS dependencies)
     const gridSpacing = {
@@ -1208,30 +1243,31 @@ function renderSVGSheet() {
         const cellX = gridSpacing.sheetPadding.left + col * (cellWidth + gridSpacing.columnGap);
         const cellY = gridSpacing.sheetPadding.top + row * (cellHeight + gridSpacing.rowGap);
         
-        // Create cell group
-        const cellGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        cellGroup.setAttribute('data-cell-index', i);
-        cellGroup.style.cursor = 'pointer';
+        // Create cell content group (for export)
+        const cellContentGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        cellContentGroup.setAttribute('data-cell-index', i);
+        cellContentGroup.setAttribute('class', 'cell-content');
         
-        // Cell background
-        const cellRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        cellRect.setAttribute('x', cellX);
-        cellRect.setAttribute('y', cellY);
-        cellRect.setAttribute('width', cellWidth);
-        cellRect.setAttribute('height', cellHeight);
-        cellRect.setAttribute('fill', '#f8f9fa');
-        cellRect.setAttribute('stroke', '#dee2e6');
-        cellRect.setAttribute('stroke-width', '0.5');
-        cellGroup.appendChild(cellRect);
+        // Create cell UI group (hidden during export)
+        const cellUIGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        cellUIGroup.setAttribute('data-cell-index', i);
+        cellUIGroup.setAttribute('class', 'cell-ui');
+        cellUIGroup.style.cursor = 'pointer';
         
-        // Render cell content
-        renderSVGCell(cellGroup, i, cellX, cellY, cellWidth, cellHeight, gridSpacing.cellPadding);
+        // Render cell content (images go to content layer, buttons and cell visuals go to UI layer)
+        renderSVGCell(cellContentGroup, cellUIGroup, i, cellX, cellY, cellWidth, cellHeight, gridSpacing.cellPadding);
         
-        // Add click handler for cell interaction
-        cellGroup.addEventListener('click', () => handleCellAdd(i));
+        // Add click handler for cell interaction to UI layer
+        cellUIGroup.addEventListener('click', () => handleCellAdd(i));
         
-        svg.appendChild(cellGroup);
+        // Add groups to respective layers
+        contentLayer.appendChild(cellContentGroup);
+        uiLayer.appendChild(cellUIGroup);
     }
+    
+    // Add layers to SVG
+    svg.appendChild(contentLayer);
+    svg.appendChild(uiLayer);
     
     elements.sheet.appendChild(svg);
 }
@@ -1407,6 +1443,14 @@ function hideSizePicker() {
     overlayManager.hide(elements.sizeOverlay);
 }
 
+function showExportOverlay() {
+    overlayManager.show(elements.exportOverlay);
+}
+
+function hideExportOverlay() {
+    overlayManager.hide(elements.exportOverlay);
+}
+
 function highlightCurrentSize() {
     const sizeOptions = document.querySelectorAll('.size-option');
     const currentSize = layoutState.sheet.paperSize;
@@ -1457,4 +1501,320 @@ function showLoading(message = 'Loading...') {
 function hideLoading() {
     if (!elements.loading) return; // Safety check for early calls
     overlayManager.hide(elements.loading);
+}
+
+// Export functionality
+async function handleQualityExport(quality) {
+    hideExportOverlay();
+    showLoading(`Exporting in ${EXPORT_QUALITY[quality].label} quality...`);
+    
+    try {
+        const pdf = await assemblePDF(quality);
+        downloadPDF(pdf, quality);
+        hideLoading();
+        // Show success feedback briefly
+        showLoading('Export complete!');
+        setTimeout(hideLoading, 2000);
+    } catch (error) {
+        hideLoading();
+        console.error('Export failed:', error);
+        alert('Export failed. Please try again.');
+    }
+}
+
+async function assemblePDF(quality) {
+    const { width, height, orientation } = layoutState.sheet;
+    const pdf = new jsPDF({ 
+        orientation: orientation === 'landscape' ? 'l' : 'p', 
+        unit: 'mm', 
+        format: [width, height] 
+    });
+    
+    showLoading('Rasterizing cells...');
+    
+    // Process each cell that has content
+    for (let i = 0; i < layoutState.cells.length; i++) {
+        if (layoutState.cells[i]) {
+            const cellImageData = await rasterizeCellToCanvas(i, quality);
+            const imageBounds = getActualImageBounds(i);
+            
+            pdf.addImage(
+                cellImageData, 
+                'JPEG', 
+                imageBounds.x, 
+                imageBounds.y, 
+                imageBounds.width, 
+                imageBounds.height
+            );
+        }
+    }
+    
+    showLoading('Assembling PDF...');
+    return pdf;
+}
+
+async function rasterizeCellToCanvas(cellIndex, quality) {
+    const { scale, jpegQuality } = EXPORT_QUALITY[quality];
+    
+    // Get actual image bounds (excluding white space for contain mode)
+    const imageBounds = getActualImageBounds(cellIndex);
+    if (!imageBounds) {
+        throw new Error(`No image bounds found for cell ${cellIndex}`);
+    }
+    
+    // Calculate target dimensions
+    const targetWidth = Math.round(imageBounds.width * scale);
+    const targetHeight = Math.round(imageBounds.height * scale);
+    
+    // Get the main SVG element
+    const svg = elements.sheet.querySelector('svg');
+    if (!svg) {
+        throw new Error('SVG sheet not found');
+    }
+    
+    // Hide UI layer temporarily
+    const uiLayer = svg.querySelector('#ui-layer');
+    const originalVisibility = uiLayer ? uiLayer.style.display : '';
+    if (uiLayer) {
+        uiLayer.style.display = 'none';
+    }
+    
+    try {
+        // Use the actual image bounds for cutting
+        return await renderSVGToCanvas(svg, imageBounds, scale, jpegQuality);
+        
+    } finally {
+        // Restore UI layer visibility
+        if (uiLayer) {
+            uiLayer.style.display = originalVisibility;
+        }
+    }
+}
+
+async function renderSVGToCanvas(svg, cellCoords, scale, jpegQuality) {
+    // Create a temporary image element to render the SVG
+    const img = new Image();
+    
+    // Create a promise to handle the image loading
+    return new Promise((resolve, reject) => {
+        img.onload = () => {
+            try {
+                // Create canvas at full sheet size scaled
+                const fullCanvas = document.createElement('canvas');
+                const fullWidth = Math.round(layoutState.sheet.width * scale);
+                const fullHeight = Math.round(layoutState.sheet.height * scale);
+                
+                fullCanvas.width = fullWidth;
+                fullCanvas.height = fullHeight;
+                
+                const fullCtx = fullCanvas.getContext('2d');
+                
+                // Draw the SVG to the full canvas
+                fullCtx.drawImage(img, 0, 0, fullWidth, fullHeight);
+                
+                // Create cell-sized canvas
+                const cellCanvas = document.createElement('canvas');
+                const targetWidth = Math.round(cellCoords.width * scale);
+                const targetHeight = Math.round(cellCoords.height * scale);
+                
+                cellCanvas.width = targetWidth;
+                cellCanvas.height = targetHeight;
+                
+                const cellCtx = cellCanvas.getContext('2d');
+                
+                // Extract just the cell portion
+                const sourceX = Math.round(cellCoords.x * scale);
+                const sourceY = Math.round(cellCoords.y * scale);
+                
+                cellCtx.drawImage(
+                    fullCanvas,
+                    sourceX, sourceY, targetWidth, targetHeight,  // source
+                    0, 0, targetWidth, targetHeight               // destination
+                );
+                
+                // Convert to JPEG
+                const dataURL = cellCanvas.toDataURL('image/jpeg', jpegQuality);
+                resolve(dataURL);
+                
+            } catch (error) {
+                reject(new Error(`Failed to render cell to canvas: ${error.message}`));
+            }
+        };
+        
+        img.onerror = () => {
+            reject(new Error('Failed to load SVG as image'));
+        };
+        
+        // Convert SVG to data URL
+        try {
+            const serializer = new XMLSerializer();
+            const svgString = serializer.serializeToString(svg);
+            
+            // Create a clean SVG string with proper XML declaration
+            const cleanSvgString = svgString.includes('<?xml') 
+                ? svgString 
+                : `<?xml version="1.0" encoding="UTF-8"?>${svgString}`;
+            
+            // Encode as data URL
+            const svgDataURL = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(cleanSvgString)}`;
+            
+            // Set the source to trigger loading
+            img.src = svgDataURL;
+            
+        } catch (error) {
+            reject(new Error(`Failed to serialize SVG: ${error.message}`));
+        }
+    });
+}
+
+function getCellCoordinates(cellIndex) {
+    const { cols, rows } = layoutState.grid;
+    const { width: sheetWidth, height: sheetHeight } = layoutState.sheet;
+    
+    // Use the same grid spacing as SVG rendering
+    const gridSpacing = {
+        sheetPadding: { top: 10, right: 10, bottom: 10, left: 10 },
+        columnGap: 5,
+        rowGap: 5,
+        cellPadding: 2
+    };
+    
+    const col = cellIndex % cols;
+    const row = Math.floor(cellIndex / cols);
+    
+    // Calculate available space and cell dimensions (matching SVG logic)
+    const availableWidth = sheetWidth - gridSpacing.sheetPadding.left - gridSpacing.sheetPadding.right;
+    const availableHeight = sheetHeight - gridSpacing.sheetPadding.top - gridSpacing.sheetPadding.bottom;
+    const totalGapWidth = gridSpacing.columnGap * (cols - 1);
+    const totalGapHeight = gridSpacing.rowGap * (rows - 1);
+    const cellWidth = (availableWidth - totalGapWidth) / cols;
+    const cellHeight = (availableHeight - totalGapHeight) / rows;
+    
+    // Calculate cell position (matching SVG logic)
+    const cellX = gridSpacing.sheetPadding.left + col * (cellWidth + gridSpacing.columnGap);
+    const cellY = gridSpacing.sheetPadding.top + row * (cellHeight + gridSpacing.rowGap);
+    
+    return {
+        x: cellX,
+        y: cellY,
+        width: cellWidth,
+        height: cellHeight
+    };
+}
+
+function getCellContentCoordinates(cellIndex) {
+    const cellCoords = getCellCoordinates(cellIndex);
+    const cellPadding = 2; // Match the value from gridSpacing.cellPadding
+    
+    return {
+        x: cellCoords.x + cellPadding,
+        y: cellCoords.y + cellPadding,
+        width: cellCoords.width - (cellPadding * 2),
+        height: cellCoords.height - (cellPadding * 2)
+    };
+}
+
+function getActualImageBounds(cellIndex) {
+    const cellData = layoutState.cells[cellIndex];
+    if (!cellData?.image) return null;
+    
+    const contentCoords = getCellContentCoordinates(cellIndex);
+    const { image, fillMode, transform } = cellData;
+    
+    const imgX = contentCoords.x;
+    const imgY = contentCoords.y;
+    const imgWidth = contentCoords.width;
+    const imgHeight = contentCoords.height;
+    
+    switch (fillMode) {
+        case 'fill':
+            // Fill mode stretches to entire cell content area
+            return {
+                x: imgX,
+                y: imgY,
+                width: imgWidth,
+                height: imgHeight
+            };
+            
+        case 'cover':
+            // Cover mode: calculate actual visible image bounds considering user transforms
+            const imageAspectCover = image.width / image.height;
+            const cellAspectCover = imgWidth / imgHeight;
+            
+            // Calculate base size (scale to fill cell)
+            let baseWidth, baseHeight;
+            if (imageAspectCover > cellAspectCover) {
+                // Image is wider than cell - scale to fill height
+                baseHeight = imgHeight;
+                baseWidth = baseHeight * imageAspectCover;
+            } else {
+                // Image is taller than cell - scale to fill width
+                baseWidth = imgWidth;
+                baseHeight = baseWidth / imageAspectCover;
+            }
+            
+            // Apply user transforms
+            const transformCover = transform || { scale: 1, translateX: 0, translateY: 0 };
+            const finalWidth = baseWidth * transformCover.scale;
+            const finalHeight = baseHeight * transformCover.scale;
+            
+            // Calculate image position with transforms
+            const centerX = imgX + imgWidth / 2;
+            const centerY = imgY + imgHeight / 2;
+            const finalX = centerX - finalWidth / 2 + transformCover.translateX;
+            const finalY = centerY - finalHeight / 2 + transformCover.translateY;
+            
+            // Find intersection between transformed image and cell area
+            const visibleLeft = Math.max(finalX, imgX);
+            const visibleTop = Math.max(finalY, imgY);
+            const visibleRight = Math.min(finalX + finalWidth, imgX + imgWidth);
+            const visibleBottom = Math.min(finalY + finalHeight, imgY + imgHeight);
+            
+            // If no intersection, return null (shouldn't happen in practice)
+            if (visibleLeft >= visibleRight || visibleTop >= visibleBottom) {
+                return null;
+            }
+            
+            return {
+                x: visibleLeft,
+                y: visibleTop,
+                width: visibleRight - visibleLeft,
+                height: visibleBottom - visibleTop
+            };
+            
+        case 'contain':
+        default:
+            // Contain mode: scale to fit within cell while maintaining aspect ratio
+            const imageAspect = image.width / image.height;
+            const cellAspect = imgWidth / imgHeight;
+            
+            let actualWidth, actualHeight;
+            if (imageAspect > cellAspect) {
+                // Image is wider - fit to width
+                actualWidth = imgWidth;
+                actualHeight = actualWidth / imageAspect;
+            } else {
+                // Image is taller - fit to height
+                actualHeight = imgHeight;
+                actualWidth = actualHeight * imageAspect;
+            }
+            
+            // Center the image in the cell
+            const actualX = imgX + (imgWidth - actualWidth) / 2;
+            const actualY = imgY + (imgHeight - actualHeight) / 2;
+            
+            return {
+                x: actualX,
+                y: actualY,
+                width: actualWidth,
+                height: actualHeight
+            };
+    }
+}
+
+function downloadPDF(pdf, quality) {
+    const filename = `PDFomator ${quality}.pdf`;
+    
+    showLoading('Preparing download...');
+    pdf.save(filename);
 }
