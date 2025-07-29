@@ -465,7 +465,7 @@ async function processPDFFileForCell(file, cellIndex) {
     if (pdf.numPages === 1) {
         // Single page - process directly
         const page = await pdf.getPage(1);
-        const bitmap = await renderPDFPage(page, 8, 'bitmap');
+        const bitmap = await renderPDFPage(page, 2, 'bitmap');
         addToSpecificCell(bitmap, `${file.name} p1`, cellIndex);
     } else {
         // Multiple pages - show page selector
@@ -649,7 +649,7 @@ async function generateThumbnailsSequentially(pdf, fileName, cellIndex, pageGrid
 async function processSelectedPage(pdf, pageNum, fileName, cellIndex) {
     try {
         const selectedPage = await pdf.getPage(pageNum);
-        const bitmap = await renderPDFPage(selectedPage, 8, 'bitmap');
+        const bitmap = await renderPDFPage(selectedPage, 2, 'bitmap');
         addToSpecificCell(bitmap, `${fileName} p${pageNum}`, cellIndex);
     } catch (error) {
         alert('Failed to process selected page.');
