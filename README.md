@@ -2,7 +2,13 @@
 
 **Minimal Mobile PWA to Pack PDF Pages and Images on a Sheet**
 
+[![Security](https://img.shields.io/badge/security-audited-brightgreen)](AUDIT_REPORT.md)
+[![Version](https://img.shields.io/badge/version-1.2.2-blue)](sw.js)
+[![Production](https://img.shields.io/badge/status-production%20ready-success)](AUDIT_SUMMARY.md)
+
 A client-side Progressive Web App that arranges multiple PDF pages and images into customizable grid layouts for printing or presentation.
+
+**🔒 Security**: Recently audited and patched - [View Audit Report](AUDIT_INDEX.md)
 
 ## 🚀 Features
 
@@ -35,3 +41,13 @@ A client-side Progressive Web App that arranges multiple PDF pages and images in
 - **Cover Mode**: In cover mode, use touch gestures to pan and zoom for perfect positioning
 - **Keyboard**: Press ESC to close dialogs, Ctrl/Cmd+E for quick export
 - **Quality**: Choose Standard for faster exports or HD for maximum quality
+
+## 📋 Recent Audit
+
+PDFomator underwent a comprehensive security and code quality audit on December 8, 2024:
+- ✅ **2 security vulnerabilities** identified and patched
+- ✅ **Accessibility improvements** implemented (ARIA attributes, focus management)
+- ✅ **Code quality enhancements** applied (extracted constants, better organization)
+- ✅ **Score: 8.5/10** - Production ready
+
+**[View Complete Audit Documentation →](AUDIT_INDEX.md)**
