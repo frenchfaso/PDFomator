@@ -51,9 +51,9 @@
     </div>
     
     <!-- Grid Picker Overlay (hidden by default) -->
-    <div id="gridOverlay" class="grid-overlay hidden">
+    <div id="gridOverlay" class="grid-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="gridOverlayTitle">
         <div class="grid-picker">
-            <h3>Select Grid Size</h3>
+            <h3 id="gridOverlayTitle">Select Grid Size</h3>
             <div id="gridMatrix" class="grid-matrix"></div>
             <div class="grid-info">
                 <span id="gridDisplay">1 × 2</span>
@@ -63,9 +63,9 @@
     </div>
     
     <!-- Size Picker Overlay -->
-    <div id="sizeOverlay" class="size-overlay hidden">
+    <div id="sizeOverlay" class="size-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="sizeOverlayTitle">
         <div class="size-picker">
-            <h3>Select Paper Size & Orientation</h3>
+            <h3 id="sizeOverlayTitle">Select Paper Size & Orientation</h3>
             <div class="size-options">
                 <div class="size-option interactive-card" data-size="A4" data-orientation="portrait">
                     <div class="size-preview a4-portrait"></div>
@@ -93,9 +93,9 @@
     </div>
     
     <!-- PDF Page Selector Overlay -->
-    <div id="pageSelector" class="page-selector-overlay hidden">
+    <div id="pageSelector" class="page-selector-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="pageSelectorTitle">
         <div class="page-selector">
-            <h3>Select PDF Page</h3>
+            <h3 id="pageSelectorTitle">Select PDF Page</h3>
             <div id="pageGrid" class="page-grid"></div>
             <div class="page-selector-actions">
                 <button id="cancelPageSelection" class="btn-cancel">Cancel</button>
@@ -104,9 +104,9 @@
     </div>
     
     <!-- Export Quality Selector Overlay -->
-    <div id="exportOverlay" class="export-overlay hidden">
+    <div id="exportOverlay" class="export-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="exportOverlayTitle">
         <div class="overlay-content">
-            <h3>Export Quality</h3>
+            <h3 id="exportOverlayTitle">Export Quality</h3>
             <div class="export-options">
                 <button id="exportSD" class="export-btn">
                     <strong>SD (web, mail)</strong>
@@ -122,9 +122,9 @@
     </div>
 
     <!-- File Type Selector Overlay -->
-    <div id="fileTypeSelector" class="file-type-overlay hidden">
+    <div id="fileTypeSelector" class="file-type-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="fileTypeSelectorTitle">
         <div class="file-type-picker">
-            <h3>Choose Content Type</h3>
+            <h3 id="fileTypeSelectorTitle">Choose Content Type</h3>
             <div class="file-type-buttons">
                 <button id="selectPdfBtn" class="file-type-btn">
                     <span class="file-type-icon">📄</span>
@@ -144,14 +144,14 @@
     <input type="file" id="imageInput" accept="image/*" style="display: none;">
     
     <!-- Loading indicator -->
-    <div id="loading" class="loading hidden">
-        <div class="spinner"></div>
+    <div id="loading" class="loading hidden" role="status" aria-live="polite" aria-label="Loading">
+        <div class="spinner" aria-hidden="true"></div>
         <p>Processing...</p>
     </div>
     
     <!-- Scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.mjs" type="module"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/3.0.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.2.67/build/pdf.mjs" type="module"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/3.0.2/jspdf.umd.min.js"></script>
     <script>
         // jsPDF initialization (from official examples)
         window.jsPDF = window.jspdf.jsPDF;

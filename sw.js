@@ -1,7 +1,7 @@
 // PDFomator Service Worker
 // Simple offline cache for static assets
 
-const CACHE_NAME = 'pdfomator-v1.2.1';
+const CACHE_NAME = 'pdfomator-v1.2.2';
 const STATIC_ASSETS = [
     './',
     './index.html',
@@ -9,9 +9,9 @@ const STATIC_ASSETS = [
     './main.js',
     './manifest.json',
     'https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.red.min.css',
-    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.mjs',
-    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.worker.mjs',
-    'https://cdnjs.cloudflare.com/ajax/libs/jspdf/3.0.1/jspdf.umd.min.js'
+    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.2.67/build/pdf.mjs',
+    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.2.67/build/pdf.worker.mjs',
+    'https://cdnjs.cloudflare.com/ajax/libs/jspdf/3.0.2/jspdf.umd.min.js'
 ];
 
 // Utility function to check if URL should be cached

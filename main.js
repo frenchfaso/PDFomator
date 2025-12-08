@@ -23,7 +23,46 @@ const CONFIG = {
         A3: { width: 297, height: 420 }
     },
     maxGridSize: 5,
-    pdfWorkerUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.worker.mjs'
+    pdfWorkerUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.2.67/build/pdf.worker.mjs',
+    
+    // Grid spacing constants (in mm)
+    gridSpacing: {
+        sheetPadding: { top: 10, right: 10, bottom: 10, left: 10 },
+        columnGap: 5,
+        rowGap: 5,
+        cellPadding: 2
+    },
+    
+    // UI constants
+    ui: {
+        buttonRadius: 12,           // Radius for circular buttons in SVG (mm)
+        buttonStrokeWidth: 2,       // Stroke width for buttons (mm)
+        buttonIconSize: 8,          // Size of button icons (mm)
+        buttonFontSize: 16,         // Font size for button text
+        cellStrokeWidth: 0.5,       // Stroke width for cell borders (mm)
+        addButtonRadius: 12,        // Radius for add button in empty cells (mm)
+        addButtonFontSize: 16       // Font size for add button
+    },
+    
+    // Interaction constants
+    interaction: {
+        minScale: 0.2,              // Minimum zoom scale
+        maxScale: 5,                // Maximum zoom scale
+        wheelZoomSlow: 0.01,        // Slow zoom step (zoomed out)
+        wheelZoomNormal: 0.05,      // Normal zoom step
+        wheelZoomFast: 0.05,        // Fast zoom step (zoomed in)
+        pinchDampingZoomedOut: 0.15,// Pinch damping when zoomed out
+        pinchDampingNormal: 0.5,    // Normal pinch damping
+        pinchDampingZoomedIn: 0.2,  // Pinch damping when zoomed in
+        pinchTransitionScale: 1.0,  // Scale where damping transitions (low)
+        pinchTransitionScaleHigh: 3.0 // Scale where damping transitions (high)
+    },
+    
+    // Cache management
+    cache: {
+        maxEntries: 50,             // Maximum cache entries
+        updateCheckInterval: 60000  // Check for updates every 60 seconds
+    }
 };
 
 // Export quality configuration
@@ -42,16 +81,76 @@ const EXPORT_QUALITY = {
 
 // Overlay management utilities
 const overlayManager = {
+    currentOverlay: null,
+    previousFocus: null,
+    
     show(element, onShow = null) {
         if (!element) return; // Safety check
         element.classList.remove('hidden');
+        
+        // Store the currently focused element
+        this.previousFocus = document.activeElement;
+        this.currentOverlay = element;
+        
+        // Set focus to the overlay or first focusable element
+        this.trapFocus(element);
+        
         if (onShow) onShow();
     },
     
     hide(element, onHide = null) {
         if (!element) return; // Safety check
         element.classList.add('hidden');
+        
+        // Restore focus to previous element
+        if (this.previousFocus && this.currentOverlay === element) {
+            this.previousFocus.focus();
+            this.previousFocus = null;
+            this.currentOverlay = null;
+        }
+        
         if (onHide) onHide();
+    },
+    
+    // Trap focus within the overlay
+    trapFocus(overlay) {
+        // Get all focusable elements
+        const focusableElements = overlay.querySelectorAll(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        );
+        
+        if (focusableElements.length === 0) return;
+        
+        const firstElement = focusableElements[0];
+        const lastElement = focusableElements[focusableElements.length - 1];
+        
+        // Focus the first element
+        firstElement.focus();
+        
+        // Handle Tab key to trap focus
+        const handleTab = (e) => {
+            if (e.key !== 'Tab') return;
+            
+            if (e.shiftKey) {
+                // Shift + Tab
+                if (document.activeElement === firstElement) {
+                    e.preventDefault();
+                    lastElement.focus();
+                }
+            } else {
+                // Tab
+                if (document.activeElement === lastElement) {
+                    e.preventDefault();
+                    firstElement.focus();
+                }
+            }
+        };
+        
+        // Remove old listener if exists
+        overlay.removeEventListener('keydown', handleTab);
+        
+        // Add new listener
+        overlay.addEventListener('keydown', handleTab);
     },
     
     // Setup click-outside-to-close behavior
@@ -133,7 +232,7 @@ function registerServiceWorker() {
                 setInterval(() => {
                     console.log('[App] Checking for updates...');
                     registration.update();
-                }, 60000); // Check every minute
+                }, CONFIG.cache.updateCheckInterval); // Check every minute
                 
             })
             .catch(error => {
@@ -956,19 +1055,19 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
         // Non-linear zoom that slows down at extremes
         // Use different acceleration based on current zoom level
         let zoomStep;
-        if (currentScale < 1) {
+        if (currentScale < CONFIG.interaction.pinchTransitionScale) {
             // Much slower zoom when zoomed out (0.2 - 1.0) for precise control
-            zoomStep = 0.01 + (currentScale - 0.2) * 0.025; // 0.01 to 0.03
-        } else if (currentScale > 3) {
+            zoomStep = CONFIG.interaction.wheelZoomSlow + (currentScale - CONFIG.interaction.minScale) * 0.025;
+        } else if (currentScale > CONFIG.interaction.pinchTransitionScaleHigh) {
             // Much slower zoom when highly zoomed in (3.0 - 5.0)
-            zoomStep = 0.05 - (currentScale - 3) * 0.015; // 0.05 to 0.02
+            zoomStep = CONFIG.interaction.wheelZoomNormal - (currentScale - CONFIG.interaction.pinchTransitionScaleHigh) * 0.015;
         } else {
             // Normal zoom in the middle range (1.0 - 3.0)
-            zoomStep = 0.05;
+            zoomStep = CONFIG.interaction.wheelZoomNormal;
         }
         
         const direction = e.deltaY < 0 ? 1 : -1;
-        const newScale = Math.max(0.2, Math.min(5, currentScale + (direction * zoomStep)));
+        const newScale = Math.max(CONFIG.interaction.minScale, Math.min(CONFIG.interaction.maxScale, currentScale + (direction * zoomStep)));
         
         cellData.transform.scale = newScale;
         
@@ -995,18 +1094,18 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
                 
                 // Apply non-linear damping based on current zoom level
                 let dampingFactor;
-                if (currentScale < 1) {
+                if (currentScale < CONFIG.interaction.pinchTransitionScale) {
                     // Much slower scaling when zoomed out for precise control
-                    dampingFactor = 0.15 + (currentScale - 0.2) * 0.25; // 0.15 to 0.35
-                } else if (currentScale > 3) {
+                    dampingFactor = CONFIG.interaction.pinchDampingZoomedOut + (currentScale - CONFIG.interaction.minScale) * 0.25;
+                } else if (currentScale > CONFIG.interaction.pinchTransitionScaleHigh) {
                     // Much slower scaling when highly zoomed in
-                    dampingFactor = 0.5 - (currentScale - 3) * 0.15; // 0.5 to 0.2
+                    dampingFactor = CONFIG.interaction.pinchDampingNormal - (currentScale - CONFIG.interaction.pinchTransitionScaleHigh) * 0.15;
                 } else {
                     // Normal scaling in middle range
-                    dampingFactor = 0.5;
+                    dampingFactor = CONFIG.interaction.pinchDampingNormal;
                 }
                 
-                newScale = Math.max(0.2, Math.min(5, currentScale + (scaleDelta * dampingFactor)));
+                newScale = Math.max(CONFIG.interaction.minScale, Math.min(CONFIG.interaction.maxScale, currentScale + (scaleDelta * dampingFactor)));
             } else {
                 newScale = startTransform.scale;
             }
@@ -1228,22 +1327,22 @@ function renderSVGCell(cellContentGroup, cellUIGroup, cellIndex, cellX, cellY, c
         fillModeBtn.style.cursor = 'pointer';
         
         const fillModeBtnCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        fillModeBtnCircle.setAttribute('cx', cellX + 12);
-        fillModeBtnCircle.setAttribute('cy', cellY + 12);
-        fillModeBtnCircle.setAttribute('r', '12');
+        fillModeBtnCircle.setAttribute('cx', cellX + CONFIG.ui.buttonRadius);
+        fillModeBtnCircle.setAttribute('cy', cellY + CONFIG.ui.buttonRadius);
+        fillModeBtnCircle.setAttribute('r', CONFIG.ui.buttonRadius);
         fillModeBtnCircle.setAttribute('fill', 'rgba(40, 167, 69, 0.9)');
         fillModeBtnCircle.setAttribute('stroke', 'white');
-        fillModeBtnCircle.setAttribute('stroke-width', '2');
+        fillModeBtnCircle.setAttribute('stroke-width', CONFIG.ui.buttonStrokeWidth);
         
         // Simple white square outline icon (larger)
         const fillModeBtnIcon = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        fillModeBtnIcon.setAttribute('x', cellX + 8);
-        fillModeBtnIcon.setAttribute('y', cellY + 8);
-        fillModeBtnIcon.setAttribute('width', '8');
-        fillModeBtnIcon.setAttribute('height', '8');
+        fillModeBtnIcon.setAttribute('x', cellX + CONFIG.ui.buttonRadius - CONFIG.ui.buttonIconSize / 2);
+        fillModeBtnIcon.setAttribute('y', cellY + CONFIG.ui.buttonRadius - CONFIG.ui.buttonIconSize / 2);
+        fillModeBtnIcon.setAttribute('width', CONFIG.ui.buttonIconSize);
+        fillModeBtnIcon.setAttribute('height', CONFIG.ui.buttonIconSize);
         fillModeBtnIcon.setAttribute('fill', 'none');
         fillModeBtnIcon.setAttribute('stroke', 'white');
-        fillModeBtnIcon.setAttribute('stroke-width', '2');
+        fillModeBtnIcon.setAttribute('stroke-width', CONFIG.ui.buttonStrokeWidth);
         
         fillModeBtn.appendChild(fillModeBtnCircle);
         fillModeBtn.appendChild(fillModeBtnIcon);
@@ -1442,12 +1541,7 @@ function renderSVGSheet() {
     contentLayer.appendChild(sheetBg);
     
     // Calculate grid spacing in mm (simplified - no CSS dependencies)
-    const gridSpacing = {
-        sheetPadding: { top: 10, right: 10, bottom: 10, left: 10 },
-        columnGap: 5,
-        rowGap: 5,
-        cellPadding: 2
-    };
+    const gridSpacing = CONFIG.gridSpacing;
     
     // Calculate available space and cell dimensions
     const availableWidth = width - gridSpacing.sheetPadding.left - gridSpacing.sheetPadding.right;
