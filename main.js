@@ -64,6 +64,11 @@ const CONFIG = {
     cache: {
         maxEntries: 50,             // Maximum cache entries
         updateCheckInterval: 60000  // Check for updates every 60 seconds
+    },
+
+    // Image normalization
+    image: {
+        maxRasterDimension: 2800    // Downscale oversized photos for faster filtering/export
     }
 };
 
@@ -734,14 +739,22 @@ async function createPersistentImageFromSource(src) {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
 
-    canvas.width = sourceImage.naturalWidth || sourceImage.width;
-    canvas.height = sourceImage.naturalHeight || sourceImage.height;
+    const sourceWidth = sourceImage.naturalWidth || sourceImage.width;
+    const sourceHeight = sourceImage.naturalHeight || sourceImage.height;
+    const maxDimension = CONFIG.image.maxRasterDimension;
+    const shouldDownscale = shouldUseNativeCameraCapture();
+    const scale = shouldDownscale ? Math.min(1, maxDimension / Math.max(sourceWidth, sourceHeight)) : 1;
+
+    canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+    canvas.height = Math.max(1, Math.round(sourceHeight * scale));
 
     if (!canvas.width || !canvas.height || !ctx) {
         throw new Error('Failed to prepare image canvas');
     }
 
-    ctx.drawImage(sourceImage, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(sourceImage, 0, 0, canvas.width, canvas.height);
     const dataUrl = canvas.toDataURL('image/png');
 
     return loadImageFromSrc(dataUrl);
