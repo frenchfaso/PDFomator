@@ -1,28 +1,25 @@
 // PDFomator Service Worker
 // Simple offline cache for static assets
 
-const CACHE_NAME = 'pdfomator-v1.2.2';
+const CACHE_NAME = 'pdfomator-v1.3.1';
 const STATIC_ASSETS = [
     './',
     './index.html',
     './styles.css',
     './main.js',
+    './sw.js',
     './manifest.json',
-    'https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.red.min.css',
-    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.2.67/build/pdf.mjs',
-    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.2.67/build/pdf.worker.mjs',
-    'https://cdnjs.cloudflare.com/ajax/libs/jspdf/3.0.2/jspdf.umd.min.js'
+    './vendor/pico.red.min.css',
+    './vendor/pdf.mjs',
+    './vendor/pdf.worker.mjs',
+    './vendor/jspdf.umd.min.js'
 ];
 
 // Utility function to check if URL should be cached
 function shouldCache(url) {
     const urlObj = new URL(url);
-    const isOwnOrigin = urlObj.origin === self.location.origin;
-    const isPicoCSS = urlObj.hostname === 'cdn.jsdelivr.net' && urlObj.pathname.includes('pico');
-    const isPDFJS = urlObj.hostname === 'cdn.jsdelivr.net' && urlObj.pathname.includes('pdfjs-dist');
-    const isJSPDF = urlObj.hostname === 'cdnjs.cloudflare.com' && urlObj.pathname.includes('jspdf');
-    
-    return isOwnOrigin || isPicoCSS || isPDFJS || isJSPDF;
+
+    return urlObj.origin === self.location.origin;
 }
 
 // Utility function to check if response should be cached
@@ -76,29 +73,29 @@ self.addEventListener('install', event => {
         caches.open(CACHE_NAME)
             .then(cache => {
                 log('log', 'Caching static assets');
-                // Cache assets one by one to better handle failures
-                return Promise.allSettled(
-                    STATIC_ASSETS.map(url => 
-                        cache.add(url).catch(error => {
+                return Promise.all(
+                    STATIC_ASSETS.map(async url => {
+                        try {
+                            await cache.add(url);
+                            return { url, ok: true };
+                        } catch (error) {
                             log('warn', 'Failed to cache:', url, error);
-                            return null; // Continue with other assets
-                        })
-                    )
+                            return { url, ok: false, error };
+                        }
+                    })
                 );
             })
             .then((results) => {
-                const failed = results.filter(result => result.status === 'rejected');
+                const failed = results.filter(result => !result.ok);
                 if (failed.length > 0) {
-                    log('warn', 'Some assets failed to cache:', failed.length);
-                } else {
-                    log('log', 'All assets cached successfully');
+                    throw new Error(`Failed to cache ${failed.length} required asset(s)`);
                 }
-                return self.skipWaiting();
+
+                log('log', 'All assets cached successfully');
             })
             .catch(error => {
                 log('error', 'Cache operation failed:', error);
-                // Still skip waiting to allow the new SW to activate
-                return self.skipWaiting();
+                throw error;
             })
     );
 });

@@ -1,6 +1,8 @@
 // PDFomator - Main Application Logic
 // ES Module with vanilla JavaScript for PDF page layout
 
+import * as pdfjsLib from './vendor/pdf.mjs';
+
 // Application state
 const layoutState = {
     sheet: {
@@ -23,7 +25,7 @@ const CONFIG = {
         A3: { width: 297, height: 420 }
     },
     maxGridSize: 5,
-    pdfWorkerUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.2.67/build/pdf.worker.mjs',
+    pdfWorkerUrl: './vendor/pdf.worker.mjs',
     
     // Grid spacing constants (in mm)
     gridSpacing: {
@@ -79,6 +81,13 @@ const EXPORT_QUALITY = {
     }
 };
 
+const CELL_FILTERS = [
+    { key: 'original', label: 'O', name: 'Original' },
+    { key: 'document', label: 'A', name: 'Auto' },
+    { key: 'bw', label: 'BW', name: 'B&W' },
+    { key: 'bitonal', label: '1', name: '1-bit' }
+];
+
 // Overlay management utilities
 const overlayManager = {
     currentOverlay: null,
@@ -127,6 +136,10 @@ const overlayManager = {
         // Focus the first element
         firstElement.focus();
         
+        if (overlay._trapFocusHandler) {
+            overlay.removeEventListener('keydown', overlay._trapFocusHandler);
+        }
+
         // Handle Tab key to trap focus
         const handleTab = (e) => {
             if (e.key !== 'Tab') return;
@@ -146,10 +159,7 @@ const overlayManager = {
             }
         };
         
-        // Remove old listener if exists
-        overlay.removeEventListener('keydown', handleTab);
-        
-        // Add new listener
+        overlay._trapFocusHandler = handleTab;
         overlay.addEventListener('keydown', handleTab);
     },
     
@@ -166,6 +176,13 @@ const overlayManager = {
 // DOM elements
 let elements = {};
 let currentTargetCell = null; // Track which cell is being filled
+let pageSelectorSession = null;
+const cameraState = {
+    stream: null,
+    capturedDataUrl: null,
+    devices: [],
+    selectedDeviceId: ''
+};
 
 // Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', init);
@@ -203,12 +220,21 @@ async function init() {
 
 function registerServiceWorker() {
     if ('serviceWorker' in navigator) {
+        let hasReloadedForServiceWorker = false;
+        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
         navigator.serviceWorker.register('./sw.js')
             .then(registration => {
                 console.log('[App] Service Worker registered successfully:', registration.scope);
                 
                 // Get and display version from service worker
                 getServiceWorkerVersion();
+
+                // If an update is already waiting, offer it once.
+                if (registration.waiting && !isLocalhost) {
+                    console.log('[App] Waiting Service Worker found');
+                    showUpdateNotification(registration);
+                }
                 
                 // Check for updates
                 registration.addEventListener('updatefound', () => {
@@ -219,20 +245,21 @@ function registerServiceWorker() {
                         newWorker.addEventListener('statechange', () => {
                             console.log('[App] New Service Worker state:', newWorker.state);
                             
-                            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                                // New version is available
-                                console.log('[App] New version available, will auto-update');
-                                showUpdateNotification();
+                            if (newWorker.state === 'installed' && navigator.serviceWorker.controller && !isLocalhost) {
+                                console.log('[App] New version available, waiting for user refresh');
+                                showUpdateNotification(registration);
                             }
                         });
                     }
                 });
                 
-                // Automatically check for updates periodically
-                setInterval(() => {
-                    console.log('[App] Checking for updates...');
-                    registration.update();
-                }, CONFIG.cache.updateCheckInterval); // Check every minute
+                // Skip aggressive polling in local development to avoid noisy update loops.
+                if (!isLocalhost) {
+                    setInterval(() => {
+                        console.log('[App] Checking for updates...');
+                        registration.update();
+                    }, CONFIG.cache.updateCheckInterval); // Check every minute
+                }
                 
             })
             .catch(error => {
@@ -241,8 +268,16 @@ function registerServiceWorker() {
             
         // Listen for service worker controller changes
         navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (hasReloadedForServiceWorker) return;
+            hasReloadedForServiceWorker = true;
+
+            if (isLocalhost) {
+                console.log('[App] Service Worker controller changed on localhost');
+                return;
+            }
+
             console.log('[App] Service Worker controller changed - reloading app');
-            // Automatically reload when new service worker takes control
+            // Reload once after the user applies an update.
             window.location.reload();
         });
     } else {
@@ -250,7 +285,11 @@ function registerServiceWorker() {
     }
 }
 
-function showUpdateNotification() {
+function showUpdateNotification(registration) {
+    if (document.querySelector('.update-notification')) {
+        return;
+    }
+
     // Create a simple update notification
     const notification = document.createElement('div');
     notification.className = 'update-notification';
@@ -274,8 +313,8 @@ function showUpdateNotification() {
     // Handle update button click
     document.getElementById('updateBtn').addEventListener('click', () => {
         clearTimeout(autoDismiss);
-        if (navigator.serviceWorker.controller) {
-            navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' });
+        if (registration?.waiting) {
+            registration.waiting.postMessage({ type: 'SKIP_WAITING' });
         }
         notification.remove();
     });
@@ -358,6 +397,7 @@ function cacheElements() {
         exportBtn: document.getElementById('exportBtn'),
         pdfInput: document.getElementById('pdfInput'),
         imageInput: document.getElementById('imageInput'),
+        cameraInput: document.getElementById('cameraInput'),
         gridOverlay: document.getElementById('gridOverlay'),
         gridMatrix: document.getElementById('gridMatrix'),
         gridDisplay: document.getElementById('gridDisplay'),
@@ -367,7 +407,17 @@ function cacheElements() {
         fileTypeSelector: document.getElementById('fileTypeSelector'),
         selectPdfBtn: document.getElementById('selectPdfBtn'),
         selectImageBtn: document.getElementById('selectImageBtn'),
+        selectCameraBtn: document.getElementById('selectCameraBtn'),
         cancelFileType: document.getElementById('cancelFileType'),
+        cameraOverlay: document.getElementById('cameraOverlay'),
+        cameraDeviceField: document.getElementById('cameraDeviceField'),
+        cameraDeviceSelect: document.getElementById('cameraDeviceSelect'),
+        cameraVideo: document.getElementById('cameraVideo'),
+        cameraCapturedImage: document.getElementById('cameraCapturedImage'),
+        cameraCaptureBtn: document.getElementById('cameraCaptureBtn'),
+        cameraUseBtn: document.getElementById('cameraUseBtn'),
+        cameraRetakeBtn: document.getElementById('cameraRetakeBtn'),
+        cancelCamera: document.getElementById('cancelCamera'),
         pageSelector: document.getElementById('pageSelector'),
         pageGrid: document.getElementById('pageGrid'),
         cancelPageSelection: document.getElementById('cancelPageSelection'),
@@ -385,30 +435,12 @@ function showError(message) {
 
 async function setupPDFWorker() {
     try {
-        // Wait for PDF.js to be loaded with more sophisticated checking
-        let attempts = 0;
-        const maxAttempts = 100; // 10 seconds max wait
-        
-        while (attempts < maxAttempts) {
-            // Check if pdfjsLib is available and has the required methods
-            // Also check for window.pdfjsLib as it might be attached to window with ES modules
-            const lib = window.pdfjsLib || pdfjsLib;
-            if (typeof lib !== 'undefined' && lib.getDocument && lib.GlobalWorkerOptions) {
-                // Assign to global for consistency
-                window.pdfjsLib = lib;
-                break;
-            }
-            await new Promise(resolve => setTimeout(resolve, 100));
-            attempts++;
-        }
-        
-        const lib = window.pdfjsLib || pdfjsLib;
-        if (typeof lib === 'undefined' || !lib.getDocument) {
+        if (!pdfjsLib?.getDocument || !pdfjsLib?.GlobalWorkerOptions) {
             throw new Error('PDF.js failed to load completely. Please check your internet connection and refresh the page.');
         }
-        
-        // Configure PDF.js worker
-        lib.GlobalWorkerOptions.workerSrc = CONFIG.pdfWorkerUrl;
+
+        pdfjsLib.GlobalWorkerOptions.workerSrc = CONFIG.pdfWorkerUrl;
+        window.pdfjsLib = pdfjsLib;
         
     } catch (error) {
         // Show user-friendly error
@@ -425,6 +457,7 @@ function setupEventListeners() {
     // File input handlers
     elements.pdfInput.addEventListener('change', handlePDFSelection);
     elements.imageInput.addEventListener('change', handleImageSelection);
+    elements.cameraInput.addEventListener('change', handleCameraSelection);
     
     // File type selector handlers
     elements.selectPdfBtn.addEventListener('click', () => {
@@ -435,7 +468,13 @@ function setupEventListeners() {
         hideFileTypeSelector();
         elements.imageInput.click();
     });
+    elements.selectCameraBtn.addEventListener('click', handleCameraOption);
     elements.cancelFileType.addEventListener('click', cancelFileTypeSelector);
+    elements.cameraCaptureBtn.addEventListener('click', captureCameraFrame);
+    elements.cameraUseBtn.addEventListener('click', useCapturedPhoto);
+    elements.cameraRetakeBtn.addEventListener('click', resetCameraCapture);
+    elements.cameraDeviceSelect.addEventListener('change', handleCameraDeviceChange);
+    elements.cancelCamera.addEventListener('click', cancelCameraOverlay);
     
     // Export quality handlers
     elements.exportSD.addEventListener('click', () => handleQualityExport('SD'));
@@ -454,6 +493,7 @@ function setupEventListeners() {
     overlayManager.setupClickOutside(elements.sizeOverlay, hideSizePicker);
     overlayManager.setupClickOutside(elements.exportOverlay, hideExportOverlay);
     overlayManager.setupClickOutside(elements.fileTypeSelector, cancelFileTypeSelector);
+    overlayManager.setupClickOutside(elements.cameraOverlay, cancelCameraOverlay);
     overlayManager.setupClickOutside(elements.pageSelector, hidePageSelector);
     
     // Setup grid matrix
@@ -472,6 +512,7 @@ function handleKeyboard(e) {
         hideGridPicker();
         hideSizePicker();
         cancelFileTypeSelector();
+        cancelCameraOverlay();
         hidePageSelector();
         hideExportOverlay();
         hideLoading();
@@ -552,14 +593,49 @@ async function handleImageSelection(e) {
     }
 }
 
+async function handleCameraSelection(e) {
+    const files = Array.from(e.target.files);
+    const targetCell = currentTargetCell;
+
+    if (files.length === 0 || targetCell === null) {
+        elements.cameraInput.value = '';
+        return;
+    }
+
+    const file = files[0];
+    showLoading('Processing photo...');
+
+    try {
+        await processImageFileForCell(file, targetCell);
+    } catch (error) {
+        alert('Failed to process photo. Please try again.');
+    } finally {
+        hideLoading();
+        elements.cameraInput.value = '';
+        if (currentTargetCell === targetCell) {
+            currentTargetCell = null;
+        }
+    }
+}
+
+function handleCameraOption() {
+    hideFileTypeSelector();
+
+    if (shouldUseNativeCameraCapture()) {
+        elements.cameraInput.click();
+        return;
+    }
+
+    showCameraOverlay();
+}
+
 async function processPDFFileForCell(file, cellIndex) {
-    const lib = window.pdfjsLib || pdfjsLib;
-    if (typeof lib === 'undefined' || !lib.getDocument) {
+    if (!pdfjsLib?.getDocument) {
         throw new Error('PDF.js library not loaded. Please refresh the page and try again.');
     }
     
     const arrayBuffer = await file.arrayBuffer();
-    const pdf = await lib.getDocument(arrayBuffer).promise;
+    const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
     
     if (pdf.numPages === 1) {
         // Single page - process directly
@@ -573,48 +649,59 @@ async function processPDFFileForCell(file, cellIndex) {
 }
 
 async function processImageFileForCell(file, cellIndex) {
+    const persistentImg = await createPersistentImageFromFile(file);
+    addToSpecificCell(persistentImg, file.name, cellIndex);
+}
+
+function shouldUseNativeCameraCapture() {
+    const hasCoarsePointer = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    const hasTouchSupport = navigator.maxTouchPoints > 0;
+    const userAgent = navigator.userAgent || '';
+    const isMobileUserAgent = /Android|iPhone|iPad|iPod|Mobile/i.test(userAgent);
+    const isMobileUAData = navigator.userAgentData?.mobile === true;
+
+    return hasCoarsePointer && hasTouchSupport && (isMobileUserAgent || isMobileUAData);
+}
+
+function loadImageFromSrc(src) {
     return new Promise((resolve, reject) => {
-        // Use createImageBitmap for direct file-to-canvas rendering
-        createImageBitmap(file)
-            .then(bitmap => {
-                try {
-                    // Create canvas and draw bitmap directly
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-                    
-                    canvas.width = bitmap.width;
-                    canvas.height = bitmap.height;
-                    
-                    // Draw the bitmap onto the canvas
-                    ctx.drawImage(bitmap, 0, 0);
-                    
-                    // Convert to data URL (PNG for lossless quality preservation)
-                    const dataUrl = canvas.toDataURL('image/png');
-                    
-                    // Create a new image with the data URL
-                    const persistentImg = new Image();
-                    persistentImg.onload = () => {
-                        // Add the image with persistent data URL after it loads
-                        addToSpecificCell(persistentImg, file.name, cellIndex);
-                        resolve();
-                    };
-                    persistentImg.onerror = () => {
-                        reject(new Error('Failed to create persistent image'));
-                    };
-                    persistentImg.src = dataUrl;
-                    
-                    // Clean up the bitmap
-                    bitmap.close();
-                    
-                } catch (error) {
-                    bitmap.close(); // Clean up memory on error
-                    reject(new Error('Failed to add image to cell'));
-                }
-            })
-            .catch(error => {
-                reject(new Error('Failed to load image file'));
-            });
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error('Failed to load image data'));
+        image.src = src;
     });
+}
+
+async function createPersistentImageFromSource(src) {
+    const sourceImage = await loadImageFromSrc(src);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    canvas.width = sourceImage.naturalWidth || sourceImage.width;
+    canvas.height = sourceImage.naturalHeight || sourceImage.height;
+
+    if (!canvas.width || !canvas.height || !ctx) {
+        throw new Error('Failed to prepare image canvas');
+    }
+
+    ctx.drawImage(sourceImage, 0, 0);
+    const dataUrl = canvas.toDataURL('image/png');
+
+    return loadImageFromSrc(dataUrl);
+}
+
+async function createPersistentImageFromFile(file) {
+    const objectUrl = URL.createObjectURL(file);
+
+    try {
+        return await createPersistentImageFromSource(objectUrl);
+    } finally {
+        URL.revokeObjectURL(objectUrl);
+    }
+}
+
+async function createPersistentImageFromDataUrl(dataUrl) {
+    return createPersistentImageFromSource(dataUrl);
 }
 
 async function renderPDFPage(page, scale = 2, outputFormat = 'canvas') {
@@ -634,9 +721,7 @@ async function renderPDFPage(page, scale = 2, outputFormat = 'canvas') {
     if (outputFormat === 'bitmap') {
         // Convert to PNG bitmap (lossless, avoid double JPEG compression)
         const dataUrl = canvas.toDataURL('image/png');
-        const bitmap = new Image();
-        bitmap.src = dataUrl;
-        return bitmap;
+        return createPersistentImageFromDataUrl(dataUrl);
     }
     
     return canvas;
@@ -645,6 +730,7 @@ async function renderPDFPage(page, scale = 2, outputFormat = 'canvas') {
 async function showPDFPageSelector(pdf, fileName, cellIndex) {
     const pageGrid = elements.pageGrid;
     pageGrid.innerHTML = '';
+    cancelPDFPageSelectorGeneration();
     
     // Hide the initial loading overlay since we're showing the page selector
     hideLoading();
@@ -652,22 +738,16 @@ async function showPDFPageSelector(pdf, fileName, cellIndex) {
     // Show the page selector immediately
     showPageSelector();
     
-    // Track thumbnail generation for cancellation
-    let thumbnailGenerationCanceled = false;
-    
-    // Function to cancel thumbnail generation
-    const cancelThumbnailGeneration = () => {
-        thumbnailGenerationCanceled = true;
-    };
-    
+    pageSelectorSession = { canceled: false };
+
     // Start the thumbnail generation process
-    generateThumbnailsSequentially(pdf, fileName, cellIndex, pageGrid, cancelThumbnailGeneration, () => thumbnailGenerationCanceled);
+    generateThumbnailsSequentially(pdf, fileName, cellIndex, pageGrid, pageSelectorSession);
 }
 
-async function generateThumbnailsSequentially(pdf, fileName, cellIndex, pageGrid, cancelFunction, isCanceledCheck) {
+async function generateThumbnailsSequentially(pdf, fileName, cellIndex, pageGrid, session) {
     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
         // Check if generation was canceled before processing each page
-        if (isCanceledCheck()) {
+        if (session.canceled || pageSelectorSession !== session) {
             return; // Exit the loop immediately
         }
         
@@ -676,7 +756,7 @@ async function generateThumbnailsSequentially(pdf, fileName, cellIndex, pageGrid
             const thumbnail = await renderPDFPage(page, 0.5, 'canvas'); // Smaller scale for thumbnails
             
             // Check again after async operations in case user selected during rendering
-            if (isCanceledCheck()) {
+            if (session.canceled || pageSelectorSession !== session) {
                 return;
             }
             
@@ -693,7 +773,8 @@ async function generateThumbnailsSequentially(pdf, fileName, cellIndex, pageGrid
             
             pageDiv.addEventListener('click', () => {
                 // Cancel any ongoing thumbnail generation
-                cancelFunction();
+                session.canceled = true;
+                pageSelectorSession = null;
                 
                 hidePageSelector();
                 showLoading('Processing selected page...');
@@ -711,7 +792,7 @@ async function generateThumbnailsSequentially(pdf, fileName, cellIndex, pageGrid
             
         } catch (error) {
             // Check if canceled before creating error placeholder
-            if (isCanceledCheck()) {
+            if (session.canceled || pageSelectorSession !== session) {
                 return;
             }
             
@@ -745,6 +826,13 @@ async function generateThumbnailsSequentially(pdf, fileName, cellIndex, pageGrid
     }
 }
 
+function cancelPDFPageSelectorGeneration() {
+    if (pageSelectorSession) {
+        pageSelectorSession.canceled = true;
+        pageSelectorSession = null;
+    }
+}
+
 async function processSelectedPage(pdf, pageNum, fileName, cellIndex) {
     try {
         const selectedPage = await pdf.getPage(pageNum);
@@ -758,14 +846,18 @@ async function processSelectedPage(pdf, pageNum, fileName, cellIndex) {
 }
 
 function addToSpecificCell(content, title = '', cellIndex) {
+    const imageData = {
+        src: content.src,
+        width: content.naturalWidth,
+        height: content.naturalHeight
+    };
+
     // Store image data in new format for SVG compatibility
     layoutState.cells[cellIndex] = { 
-        image: {
-            src: content.src,
-            width: content.naturalWidth,
-            height: content.naturalHeight
-        },
+        image: imageData,
+        originalImage: { ...imageData },
         title,
+        filter: 'original',
         fillMode: 'contain', // Default fill mode
         transform: {
             scale: 1,
@@ -811,6 +903,39 @@ function cycleFillMode(cellIndex) {
     renderSVGSheet();
 }
 
+async function cycleCellFilter(cellIndex) {
+    const cellData = layoutState.cells[cellIndex];
+    if (!cellData?.image) return;
+
+    const currentFilter = cellData.filter || 'original';
+    const currentIndex = CELL_FILTERS.findIndex(filter => filter.key === currentFilter);
+    const nextFilter = CELL_FILTERS[(currentIndex + 1 + CELL_FILTERS.length) % CELL_FILTERS.length];
+
+    try {
+        await applyCellFilter(cellIndex, nextFilter.key);
+    } catch (error) {
+        console.error('Failed to apply filter:', error);
+        alert('Failed to apply filter. Please try again.');
+    }
+}
+
+async function applyCellFilter(cellIndex, filterKey) {
+    const cellData = layoutState.cells[cellIndex];
+    if (!cellData?.image) return;
+
+    const originalImage = cellData.originalImage || cellData.image;
+    cellData.originalImage = { ...originalImage };
+    cellData.filter = filterKey;
+
+    if (filterKey === 'original') {
+        cellData.image = { ...originalImage };
+    } else {
+        cellData.image = await applyWebGLFilterToImage(originalImage, filterKey);
+    }
+
+    updateSingleCell(cellIndex);
+}
+
 // Rotate image 90 degrees clockwise
 function rotateImage(cellIndex) {
     const cellData = layoutState.cells[cellIndex];
@@ -821,11 +946,19 @@ function rotateImage(cellIndex) {
         cellData.transform = { scale: 1, translateX: 0, translateY: 0 };
     }
     
-    // Rotate the actual image data
-    rotateImageData(cellData.image).then(rotatedImageData => {
-        // Replace the image data with the rotated version
-        cellData.image = rotatedImageData;
-        
+    const originalImage = cellData.originalImage || cellData.image;
+
+    // Rotate the actual source image data, then rebuild the filtered version.
+    rotateImageData(originalImage).then(async rotatedImageData => {
+        cellData.originalImage = rotatedImageData;
+        cellData.filter = cellData.filter || 'original';
+
+        if (cellData.filter === 'original') {
+            cellData.image = { ...rotatedImageData };
+        } else {
+            cellData.image = await applyWebGLFilterToImage(rotatedImageData, cellData.filter);
+        }
+
         // Reset transforms since we've physically rotated the image
         cellData.transform.scale = 1;
         cellData.transform.translateX = 0;
@@ -889,6 +1022,276 @@ async function rotateImageData(imageData) {
             reject(error);
         }
     });
+}
+
+function getFilterModeValue(filterKey) {
+    switch (filterKey) {
+        case 'document':
+            return 1;
+        case 'bw':
+            return 2;
+        case 'bitonal':
+            return 3;
+        default:
+            return 0;
+    }
+}
+
+function getCellFilterConfig(filterKey) {
+    return CELL_FILTERS.find(filter => filter.key === filterKey) || CELL_FILTERS[0];
+}
+
+async function applyWebGLFilterToImage(imageData, filterKey) {
+    const sourceImage = await loadImageFromSrc(imageData.src);
+
+    try {
+        return await renderFilteredImageWebGL(sourceImage, filterKey);
+    } catch (error) {
+        console.warn('WebGL filter fallback triggered:', error);
+        return renderFilteredImage2D(sourceImage, filterKey);
+    }
+}
+
+async function renderFilteredImageWebGL(sourceImage, filterKey) {
+    const canvas = document.createElement('canvas');
+    canvas.width = sourceImage.naturalWidth || sourceImage.width;
+    canvas.height = sourceImage.naturalHeight || sourceImage.height;
+
+    const gl = canvas.getContext('webgl', { premultipliedAlpha: false, preserveDrawingBuffer: true });
+    if (!gl) {
+        throw new Error('WebGL unavailable');
+    }
+
+    let vertexShader = null;
+    let fragmentShader = null;
+    let program = null;
+    let positionBuffer = null;
+    let texCoordBuffer = null;
+    let texture = null;
+
+    try {
+        vertexShader = compileShader(gl, gl.VERTEX_SHADER, `
+            attribute vec2 a_position;
+            attribute vec2 a_texCoord;
+            varying vec2 v_texCoord;
+
+            void main() {
+                gl_Position = vec4(a_position, 0.0, 1.0);
+                v_texCoord = a_texCoord;
+            }
+        `);
+
+        fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, `
+            precision mediump float;
+            varying vec2 v_texCoord;
+            uniform sampler2D u_image;
+            uniform float u_filterMode;
+
+            float luminance(vec3 color) {
+                return dot(color, vec3(0.299, 0.587, 0.114));
+            }
+
+            void main() {
+                vec4 sampleColor = texture2D(u_image, v_texCoord);
+                vec3 color = sampleColor.rgb;
+                float luma = luminance(color);
+
+                if (u_filterMode < 0.5) {
+                    gl_FragColor = sampleColor;
+                    return;
+                }
+
+                if (u_filterMode < 1.5) {
+                    vec3 balanced = mix(color, vec3(luma), 0.35);
+                    balanced = clamp((balanced - 0.5) * 1.55 + 0.54, 0.0, 1.0);
+                    balanced = smoothstep(vec3(0.04), vec3(0.96), balanced);
+                    gl_FragColor = vec4(balanced, sampleColor.a);
+                    return;
+                }
+
+                if (u_filterMode < 2.5) {
+                    float gray = clamp((luma - 0.5) * 1.5 + 0.5, 0.0, 1.0);
+                    gl_FragColor = vec4(vec3(gray), sampleColor.a);
+                    return;
+                }
+
+                float contrasted = clamp((luma - 0.48) * 2.4 + 0.5, 0.0, 1.0);
+                float binary = step(0.58, contrasted);
+                gl_FragColor = vec4(vec3(binary), sampleColor.a);
+            }
+        `);
+
+        program = createProgram(gl, vertexShader, fragmentShader);
+        gl.useProgram(program);
+        gl.viewport(0, 0, canvas.width, canvas.height);
+
+        positionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+            -1, -1,
+             1, -1,
+            -1,  1,
+            -1,  1,
+             1, -1,
+             1,  1
+        ]), gl.STATIC_DRAW);
+
+        texCoordBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+            0, 1,
+            1, 1,
+            0, 0,
+            0, 0,
+            1, 1,
+            1, 0
+        ]), gl.STATIC_DRAW);
+
+        const positionLocation = gl.getAttribLocation(program, 'a_position');
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.enableVertexAttribArray(positionLocation);
+        gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+        const texCoordLocation = gl.getAttribLocation(program, 'a_texCoord');
+        gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+        gl.enableVertexAttribArray(texCoordLocation);
+        gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 0, 0);
+
+        texture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sourceImage);
+
+        const imageLocation = gl.getUniformLocation(program, 'u_image');
+        gl.uniform1i(imageLocation, 0);
+
+        const filterLocation = gl.getUniformLocation(program, 'u_filterMode');
+        gl.uniform1f(filterLocation, getFilterModeValue(filterKey));
+
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        return createPersistentImageFromDataUrl(canvas.toDataURL('image/png'));
+    } finally {
+        cleanupWebGLResources(gl, {
+            program,
+            vertexShader,
+            fragmentShader,
+            buffers: [positionBuffer, texCoordBuffer],
+            textures: [texture]
+        });
+    }
+}
+
+async function renderFilteredImage2D(sourceImage, filterKey) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = sourceImage.naturalWidth || sourceImage.width;
+    canvas.height = sourceImage.naturalHeight || sourceImage.height;
+
+    if (!ctx || !canvas.width || !canvas.height) {
+        throw new Error('2D canvas unavailable');
+    }
+
+    ctx.drawImage(sourceImage, 0, 0);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const pixels = imageData.data;
+
+    for (let i = 0; i < pixels.length; i += 4) {
+        const r = pixels[i] / 255;
+        const g = pixels[i + 1] / 255;
+        const b = pixels[i + 2] / 255;
+        const luma = (r * 0.299) + (g * 0.587) + (b * 0.114);
+
+        let outR = r;
+        let outG = g;
+        let outB = b;
+
+        if (filterKey === 'document') {
+            outR = Math.min(1, Math.max(0, ((r * 0.65 + luma * 0.35) - 0.5) * 1.55 + 0.54));
+            outG = Math.min(1, Math.max(0, ((g * 0.65 + luma * 0.35) - 0.5) * 1.55 + 0.54));
+            outB = Math.min(1, Math.max(0, ((b * 0.65 + luma * 0.35) - 0.5) * 1.55 + 0.54));
+        } else if (filterKey === 'bw') {
+            const gray = Math.min(1, Math.max(0, (luma - 0.5) * 1.5 + 0.5));
+            outR = gray;
+            outG = gray;
+            outB = gray;
+        } else if (filterKey === 'bitonal') {
+            const binary = ((luma - 0.48) * 2.4 + 0.5) >= 0.58 ? 1 : 0;
+            outR = binary;
+            outG = binary;
+            outB = binary;
+        }
+
+        pixels[i] = Math.round(outR * 255);
+        pixels[i + 1] = Math.round(outG * 255);
+        pixels[i + 2] = Math.round(outB * 255);
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    return createPersistentImageFromDataUrl(canvas.toDataURL('image/png'));
+}
+
+function compileShader(gl, type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        const error = gl.getShaderInfoLog(shader);
+        gl.deleteShader(shader);
+        throw new Error(error || 'Shader compilation failed');
+    }
+
+    return shader;
+}
+
+function createProgram(gl, vertexShader, fragmentShader) {
+    const program = gl.createProgram();
+    gl.attachShader(program, vertexShader);
+    gl.attachShader(program, fragmentShader);
+    gl.linkProgram(program);
+
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        const error = gl.getProgramInfoLog(program);
+        gl.deleteProgram(program);
+        throw new Error(error || 'Program linking failed');
+    }
+
+    return program;
+}
+
+function cleanupWebGLResources(gl, resources) {
+    if (!gl || !resources) return;
+
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    gl.useProgram(null);
+
+    (resources.textures || []).forEach(texture => {
+        if (texture) gl.deleteTexture(texture);
+    });
+
+    (resources.buffers || []).forEach(buffer => {
+        if (buffer) gl.deleteBuffer(buffer);
+    });
+
+    if (resources.program) {
+        gl.deleteProgram(resources.program);
+    }
+
+    if (resources.vertexShader) {
+        gl.deleteShader(resources.vertexShader);
+    }
+
+    if (resources.fragmentShader) {
+        gl.deleteShader(resources.fragmentShader);
+    }
+
 }
 
 // Interactive image transform functions for cover mode
@@ -1197,9 +1600,12 @@ function updateSingleCell(cellIndex) {
     // Create new cell groups
     const cellContentGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     cellContentGroup.setAttribute('data-cell-index', cellIndex);
+    cellContentGroup.setAttribute('class', 'cell-content');
     
     const cellUIGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     cellUIGroup.setAttribute('data-cell-index', cellIndex);
+    cellUIGroup.setAttribute('class', 'cell-ui');
+    cellUIGroup.style.cursor = 'pointer';
     
     // Render the updated cell
     renderSVGCell(cellContentGroup, cellUIGroup, cellIndex, cellX, cellY, cellWidth, cellHeight, gridSpacing.cellPadding);
@@ -1354,6 +1760,39 @@ function renderSVGCell(cellContentGroup, cellUIGroup, cellIndex, cellX, cellY, c
         });
         
         cellUIGroup.appendChild(fillModeBtn);
+
+        const filterConfig = getCellFilterConfig(cellData.filter || 'original');
+        const filterBtn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        filterBtn.style.cursor = 'pointer';
+        filterBtn.setAttribute('data-control', 'filter');
+
+        const filterBtnCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        filterBtnCircle.setAttribute('cx', cellX + cellWidth / 2);
+        filterBtnCircle.setAttribute('cy', cellY + 12);
+        filterBtnCircle.setAttribute('r', '12');
+        filterBtnCircle.setAttribute('fill', 'rgba(111, 66, 193, 0.92)');
+        filterBtnCircle.setAttribute('stroke', 'white');
+        filterBtnCircle.setAttribute('stroke-width', '2');
+
+        const filterBtnText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        filterBtnText.setAttribute('x', cellX + cellWidth / 2);
+        filterBtnText.setAttribute('y', cellY + 12);
+        filterBtnText.setAttribute('text-anchor', 'middle');
+        filterBtnText.setAttribute('dominant-baseline', 'central');
+        filterBtnText.setAttribute('font-family', 'monospace');
+        filterBtnText.setAttribute('font-size', filterConfig.label.length > 1 ? '10' : '13');
+        filterBtnText.setAttribute('fill', 'white');
+        filterBtnText.setAttribute('font-weight', 'bold');
+        filterBtnText.textContent = filterConfig.label;
+
+        filterBtn.appendChild(filterBtnCircle);
+        filterBtn.appendChild(filterBtnText);
+        filterBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            cycleCellFilter(cellIndex);
+        });
+
+        cellUIGroup.appendChild(filterBtn);
         
         // Add remove button (circle with X in top-right corner, inside cell)
         const removeBtn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -1800,11 +2239,189 @@ function cancelFileTypeSelector() {
     });
 }
 
+async function showCameraOverlay() {
+    overlayManager.show(elements.cameraOverlay);
+    resetCameraCapture();
+
+    try {
+        await startCameraStream(cameraState.selectedDeviceId);
+    } catch (error) {
+        hideCameraOverlay();
+        alert('Camera access is unavailable. Please use Image File instead.');
+    }
+}
+
+function hideCameraOverlay() {
+    stopCameraStream();
+    resetCameraDeviceOptions();
+    resetCameraCapture();
+    overlayManager.hide(elements.cameraOverlay);
+}
+
+function cancelCameraOverlay() {
+    hideCameraOverlay();
+    currentTargetCell = null;
+}
+
+async function startCameraStream(deviceId = '') {
+    if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('Camera API not available');
+    }
+
+    stopCameraStream();
+
+    const videoConstraints = deviceId ? { deviceId: { exact: deviceId } } : true;
+    const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
+    cameraState.stream = stream;
+
+    const activeTrack = stream.getVideoTracks()[0];
+    const activeSettings = activeTrack?.getSettings?.();
+    cameraState.selectedDeviceId = activeSettings?.deviceId || deviceId || cameraState.selectedDeviceId;
+
+    elements.cameraVideo.srcObject = stream;
+    await elements.cameraVideo.play();
+    await refreshCameraDevices();
+}
+
+function stopCameraStream() {
+    if (cameraState.stream) {
+        cameraState.stream.getTracks().forEach(track => track.stop());
+        cameraState.stream = null;
+    }
+
+    if (elements.cameraVideo) {
+        elements.cameraVideo.pause();
+        elements.cameraVideo.srcObject = null;
+    }
+}
+
+async function refreshCameraDevices() {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+        resetCameraDeviceOptions();
+        return;
+    }
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoDevices = devices.filter(device => device.kind === 'videoinput');
+    cameraState.devices = videoDevices;
+
+    if (!videoDevices.length) {
+        resetCameraDeviceOptions();
+        return;
+    }
+
+    const currentDeviceId = cameraState.selectedDeviceId || videoDevices[0].deviceId;
+    const deviceOptions = videoDevices.map((device, index) => {
+        const option = document.createElement('option');
+        option.value = device.deviceId;
+        option.textContent = device.label || `Camera ${index + 1}`;
+        return option;
+    });
+
+    elements.cameraDeviceSelect.innerHTML = '';
+    deviceOptions.forEach(option => elements.cameraDeviceSelect.appendChild(option));
+    elements.cameraDeviceSelect.value = videoDevices.some(device => device.deviceId === currentDeviceId)
+        ? currentDeviceId
+        : videoDevices[0].deviceId;
+    cameraState.selectedDeviceId = elements.cameraDeviceSelect.value;
+
+    if (videoDevices.length > 1) {
+        elements.cameraDeviceField.classList.remove('hidden');
+    } else {
+        elements.cameraDeviceField.classList.add('hidden');
+    }
+}
+
+function resetCameraDeviceOptions() {
+    cameraState.devices = [];
+    elements.cameraDeviceSelect.innerHTML = '';
+    elements.cameraDeviceField.classList.add('hidden');
+}
+
+async function handleCameraDeviceChange() {
+    const nextDeviceId = elements.cameraDeviceSelect.value;
+    if (!nextDeviceId || nextDeviceId === cameraState.selectedDeviceId) {
+        return;
+    }
+
+    cameraState.selectedDeviceId = nextDeviceId;
+    resetCameraCapture();
+
+    try {
+        await startCameraStream(nextDeviceId);
+    } catch (error) {
+        alert('Failed to switch camera. Please try another device.');
+    }
+}
+
+function captureCameraFrame() {
+    const video = elements.cameraVideo;
+    if (!video.videoWidth || !video.videoHeight) {
+        alert('Camera preview is not ready yet. Please try again.');
+        return;
+    }
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    if (!ctx) {
+        alert('Failed to capture photo. Please try again.');
+        return;
+    }
+
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    cameraState.capturedDataUrl = canvas.toDataURL('image/png');
+
+    elements.cameraCapturedImage.src = cameraState.capturedDataUrl;
+    elements.cameraCapturedImage.classList.remove('hidden');
+    elements.cameraVideo.classList.add('hidden');
+    elements.cameraCaptureBtn.classList.add('hidden');
+    elements.cameraUseBtn.classList.remove('hidden');
+    elements.cameraRetakeBtn.classList.remove('hidden');
+}
+
+function resetCameraCapture() {
+    cameraState.capturedDataUrl = null;
+    elements.cameraCapturedImage.src = '';
+    elements.cameraCapturedImage.classList.add('hidden');
+    elements.cameraVideo.classList.remove('hidden');
+    elements.cameraCaptureBtn.classList.remove('hidden');
+    elements.cameraUseBtn.classList.add('hidden');
+    elements.cameraRetakeBtn.classList.add('hidden');
+}
+
+async function useCapturedPhoto() {
+    const dataUrl = cameraState.capturedDataUrl;
+    const targetCell = currentTargetCell;
+
+    if (!dataUrl || targetCell === null) {
+        return;
+    }
+
+    hideCameraOverlay();
+    showLoading('Processing photo...');
+
+    try {
+        const persistentImg = await createPersistentImageFromDataUrl(dataUrl);
+        addToSpecificCell(persistentImg, 'Camera photo', targetCell);
+    } catch (error) {
+        alert('Failed to use captured photo. Please try again.');
+    } finally {
+        hideLoading();
+        if (currentTargetCell === targetCell) {
+            currentTargetCell = null;
+        }
+    }
+}
+
 function showPageSelector() {
     overlayManager.show(elements.pageSelector);
 }
 
 function hidePageSelector() {
+    cancelPDFPageSelectorGeneration();
     overlayManager.hide(elements.pageSelector);
 }
 
@@ -1853,8 +2470,15 @@ async function assemblePDF(quality) {
     // Process each cell that has content
     for (let i = 0; i < layoutState.cells.length; i++) {
         if (layoutState.cells[i]) {
-            const cellImageData = await rasterizeCellToCanvas(i, quality);
             const imageBounds = getActualImageBounds(i);
+            if (!imageBounds) {
+                continue;
+            }
+
+            const cellImageData = await rasterizeCellToCanvas(i, quality, imageBounds);
+            if (!cellImageData) {
+                continue;
+            }
             
             pdf.addImage(
                 cellImageData, 
@@ -1871,18 +2495,22 @@ async function assemblePDF(quality) {
     return pdf;
 }
 
-async function rasterizeCellToCanvas(cellIndex, quality) {
+async function rasterizeCellToCanvas(cellIndex, quality, imageBounds = null) {
     const { scale, jpegQuality } = EXPORT_QUALITY[quality];
     
     // Get actual image bounds (excluding white space for contain mode)
-    const imageBounds = getActualImageBounds(cellIndex);
-    if (!imageBounds) {
-        throw new Error(`No image bounds found for cell ${cellIndex}`);
+    const resolvedBounds = imageBounds || getActualImageBounds(cellIndex);
+    if (!resolvedBounds) {
+        return null;
     }
     
     // Calculate target dimensions
-    const targetWidth = Math.round(imageBounds.width * scale);
-    const targetHeight = Math.round(imageBounds.height * scale);
+    const targetWidth = Math.round(resolvedBounds.width * scale);
+    const targetHeight = Math.round(resolvedBounds.height * scale);
+
+    if (!targetWidth || !targetHeight) {
+        return null;
+    }
     
     // Get the main SVG element
     const svg = elements.sheet.querySelector('svg');
@@ -1899,7 +2527,7 @@ async function rasterizeCellToCanvas(cellIndex, quality) {
     
     try {
         // Use the actual image bounds for cutting
-        return await renderSVGToCanvas(svg, imageBounds, scale, jpegQuality);
+        return await renderSVGToCanvas(svg, resolvedBounds, scale, jpegQuality);
         
     } finally {
         // Restore UI layer visibility

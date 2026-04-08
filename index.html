@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob:; connect-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net blob:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' blob:;">
     <title>PDFomator</title>
     <meta name="description" content="Minimal Mobile PWA to Pack PDF Pages on a Sheet">
     
@@ -15,7 +15,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
     <!-- Pico CSS Red Theme -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.red.min.css">
+    <link rel="stylesheet" href="./vendor/pico.red.min.css">
     
     <!-- Custom Styles -->
     <link rel="stylesheet" href="styles.css">
@@ -134,14 +134,40 @@
                     <span class="file-type-icon">🖼️</span>
                     <span>Image File</span>
                 </button>
+                <button id="selectCameraBtn" class="file-type-btn">
+                    <span class="file-type-icon">📷</span>
+                    <span>Camera</span>
+                </button>
             </div>
             <button id="cancelFileType" class="btn-cancel">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Camera Overlay -->
+    <div id="cameraOverlay" class="camera-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="cameraOverlayTitle">
+        <div class="camera-picker">
+            <h3 id="cameraOverlayTitle">Take Photo</h3>
+            <div id="cameraDeviceField" class="camera-device-field hidden">
+                <label for="cameraDeviceSelect">Camera</label>
+                <select id="cameraDeviceSelect"></select>
+            </div>
+            <div class="camera-preview-shell">
+                <video id="cameraVideo" class="camera-preview" autoplay playsinline muted></video>
+                <img id="cameraCapturedImage" class="camera-preview hidden" alt="Captured photo preview">
+            </div>
+            <div class="camera-actions">
+                <button id="cameraCaptureBtn" class="file-type-btn">Capture</button>
+                <button id="cameraUseBtn" class="file-type-btn hidden">Use Photo</button>
+                <button id="cameraRetakeBtn" class="file-type-btn hidden">Retake</button>
+            </div>
+            <button id="cancelCamera" class="btn-cancel">Cancel</button>
         </div>
     </div>
     
     <!-- File Inputs (hidden) -->
     <input type="file" id="pdfInput" accept=".pdf" style="display: none;">
     <input type="file" id="imageInput" accept="image/*" style="display: none;">
+    <input type="file" id="cameraInput" accept="image/*" capture style="display: none;">
     
     <!-- Loading indicator -->
     <div id="loading" class="loading hidden" role="status" aria-live="polite" aria-label="Loading">
@@ -150,8 +176,7 @@
     </div>
     
     <!-- Scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.2.67/build/pdf.mjs" type="module"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/3.0.2/jspdf.umd.min.js"></script>
+    <script src="./vendor/jspdf.umd.min.js"></script>
     <script>
         // jsPDF initialization (from official examples)
         window.jsPDF = window.jspdf.jsPDF;
