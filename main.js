@@ -177,6 +177,11 @@ const overlayManager = {
 let elements = {};
 let currentTargetCell = null; // Track which cell is being filled
 let pageSelectorSession = null;
+const filterEngineState = {
+    mode: 'pending',
+    processor: null,
+    unavailableReason: ''
+};
 const cameraState = {
     stream: null,
     capturedDataUrl: null,
@@ -209,6 +214,7 @@ async function init() {
     
     // Setup PDF.js worker
     await setupPDFWorker();
+    warmFilterEngineCapability();
     
     // Initialize the sheet size and grid
     updateSheetSize();
@@ -382,10 +388,21 @@ function updateVersionDisplay(cacheVersion) {
     if (versionElement && cacheVersion) {
         // Extract version from cache name (e.g., 'pdfomator-v1.0.2' -> 'v1.0.2')
         const version = cacheVersion.split('-').pop();
-        versionElement.textContent = version;
+        const engineSuffix = filterEngineState.mode === 'gpu' ? 'g' : filterEngineState.mode === 'cpu' ? 'c' : '';
+        versionElement.textContent = `${version}${engineSuffix}`;
         console.log('[App] Version displayed:', version);
     } else {
         console.log('[App] Version element not found or no cache version provided');
+    }
+}
+
+function refreshVersionDisplay() {
+    const versionElement = document.getElementById('version');
+    const currentVersion = versionElement?.textContent || '';
+    const baseVersion = currentVersion.replace(/[gc]$/, '');
+
+    if (baseVersion) {
+        updateVersionDisplay(`pdfomator-${baseVersion}`);
     }
 }
 
@@ -446,6 +463,26 @@ async function setupPDFWorker() {
         // Show user-friendly error
         showError('PDF processing library failed to load. Please check your internet connection and refresh the page.');
     }
+}
+
+function warmFilterEngineCapability() {
+    if (filterEngineState.mode !== 'pending') {
+        refreshVersionDisplay();
+        return;
+    }
+
+    try {
+        getWebGLFilterProcessor();
+        setFilterEngineMode('gpu');
+    } catch (error) {
+        filterEngineState.unavailableReason = String(error);
+        setFilterEngineMode('cpu');
+    }
+}
+
+function setFilterEngineMode(mode) {
+    filterEngineState.mode = mode;
+    refreshVersionDisplay();
 }
 
 function setupEventListeners() {
@@ -672,6 +709,26 @@ function loadImageFromSrc(src) {
     });
 }
 
+async function getCachedSourceCanvas(imageData) {
+    if (!imageData._sourceCanvasPromise) {
+        imageData._sourceCanvasPromise = loadImageFromSrc(imageData.src).then(sourceImage => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = sourceImage.naturalWidth || sourceImage.width;
+            canvas.height = sourceImage.naturalHeight || sourceImage.height;
+
+            if (!ctx || !canvas.width || !canvas.height) {
+                throw new Error('Failed to cache source image');
+            }
+
+            ctx.drawImage(sourceImage, 0, 0);
+            return canvas;
+        });
+    }
+
+    return imageData._sourceCanvasPromise;
+}
+
 async function createPersistentImageFromSource(src) {
     const sourceImage = await loadImageFromSrc(src);
     const canvas = document.createElement('canvas');
@@ -855,7 +912,7 @@ function addToSpecificCell(content, title = '', cellIndex) {
     // Store image data in new format for SVG compatibility
     layoutState.cells[cellIndex] = { 
         image: imageData,
-        originalImage: { ...imageData },
+        originalImage: imageData,
         title,
         filter: 'original',
         fillMode: 'contain', // Default fill mode
@@ -924,11 +981,11 @@ async function applyCellFilter(cellIndex, filterKey) {
     if (!cellData?.image) return;
 
     const originalImage = cellData.originalImage || cellData.image;
-    cellData.originalImage = { ...originalImage };
+    cellData.originalImage = originalImage;
     cellData.filter = filterKey;
 
     if (filterKey === 'original') {
-        cellData.image = { ...originalImage };
+        cellData.image = originalImage;
     } else {
         cellData.image = await applyWebGLFilterToImage(originalImage, filterKey);
     }
@@ -1042,149 +1099,23 @@ function getCellFilterConfig(filterKey) {
 }
 
 async function applyWebGLFilterToImage(imageData, filterKey) {
-    const sourceImage = await loadImageFromSrc(imageData.src);
+    const sourceCanvas = await getCachedSourceCanvas(imageData);
 
     try {
-        return await renderFilteredImageWebGL(sourceImage, filterKey);
+        const filteredDataUrl = renderFilteredImageWebGL(sourceCanvas, filterKey);
+        setFilterEngineMode('gpu');
+        return createPersistentImageFromDataUrl(filteredDataUrl);
     } catch (error) {
         console.warn('WebGL filter fallback triggered:', error);
-        return renderFilteredImage2D(sourceImage, filterKey);
+        filterEngineState.unavailableReason = String(error);
+        setFilterEngineMode('cpu');
+        return renderFilteredImage2D(sourceCanvas, filterKey);
     }
 }
 
-async function renderFilteredImageWebGL(sourceImage, filterKey) {
-    const canvas = document.createElement('canvas');
-    canvas.width = sourceImage.naturalWidth || sourceImage.width;
-    canvas.height = sourceImage.naturalHeight || sourceImage.height;
-
-    const gl = canvas.getContext('webgl', { premultipliedAlpha: false, preserveDrawingBuffer: true });
-    if (!gl) {
-        throw new Error('WebGL unavailable');
-    }
-
-    let vertexShader = null;
-    let fragmentShader = null;
-    let program = null;
-    let positionBuffer = null;
-    let texCoordBuffer = null;
-    let texture = null;
-
-    try {
-        vertexShader = compileShader(gl, gl.VERTEX_SHADER, `
-            attribute vec2 a_position;
-            attribute vec2 a_texCoord;
-            varying vec2 v_texCoord;
-
-            void main() {
-                gl_Position = vec4(a_position, 0.0, 1.0);
-                v_texCoord = a_texCoord;
-            }
-        `);
-
-        fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, `
-            precision mediump float;
-            varying vec2 v_texCoord;
-            uniform sampler2D u_image;
-            uniform float u_filterMode;
-
-            float luminance(vec3 color) {
-                return dot(color, vec3(0.299, 0.587, 0.114));
-            }
-
-            void main() {
-                vec4 sampleColor = texture2D(u_image, v_texCoord);
-                vec3 color = sampleColor.rgb;
-                float luma = luminance(color);
-
-                if (u_filterMode < 0.5) {
-                    gl_FragColor = sampleColor;
-                    return;
-                }
-
-                if (u_filterMode < 1.5) {
-                    vec3 balanced = mix(color, vec3(luma), 0.35);
-                    balanced = clamp((balanced - 0.5) * 1.55 + 0.54, 0.0, 1.0);
-                    balanced = smoothstep(vec3(0.04), vec3(0.96), balanced);
-                    gl_FragColor = vec4(balanced, sampleColor.a);
-                    return;
-                }
-
-                if (u_filterMode < 2.5) {
-                    float gray = clamp((luma - 0.5) * 1.5 + 0.5, 0.0, 1.0);
-                    gl_FragColor = vec4(vec3(gray), sampleColor.a);
-                    return;
-                }
-
-                float contrasted = clamp((luma - 0.48) * 2.4 + 0.5, 0.0, 1.0);
-                float binary = step(0.58, contrasted);
-                gl_FragColor = vec4(vec3(binary), sampleColor.a);
-            }
-        `);
-
-        program = createProgram(gl, vertexShader, fragmentShader);
-        gl.useProgram(program);
-        gl.viewport(0, 0, canvas.width, canvas.height);
-
-        positionBuffer = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-            -1, -1,
-             1, -1,
-            -1,  1,
-            -1,  1,
-             1, -1,
-             1,  1
-        ]), gl.STATIC_DRAW);
-
-        texCoordBuffer = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-            0, 1,
-            1, 1,
-            0, 0,
-            0, 0,
-            1, 1,
-            1, 0
-        ]), gl.STATIC_DRAW);
-
-        const positionLocation = gl.getAttribLocation(program, 'a_position');
-        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-        gl.enableVertexAttribArray(positionLocation);
-        gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
-
-        const texCoordLocation = gl.getAttribLocation(program, 'a_texCoord');
-        gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
-        gl.enableVertexAttribArray(texCoordLocation);
-        gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 0, 0);
-
-        texture = gl.createTexture();
-        gl.bindTexture(gl.TEXTURE_2D, texture);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sourceImage);
-
-        const imageLocation = gl.getUniformLocation(program, 'u_image');
-        gl.uniform1i(imageLocation, 0);
-
-        const filterLocation = gl.getUniformLocation(program, 'u_filterMode');
-        gl.uniform1f(filterLocation, getFilterModeValue(filterKey));
-
-        gl.clearColor(0, 0, 0, 0);
-        gl.clear(gl.COLOR_BUFFER_BIT);
-        gl.drawArrays(gl.TRIANGLES, 0, 6);
-
-        return createPersistentImageFromDataUrl(canvas.toDataURL('image/png'));
-    } finally {
-        cleanupWebGLResources(gl, {
-            program,
-            vertexShader,
-            fragmentShader,
-            buffers: [positionBuffer, texCoordBuffer],
-            textures: [texture]
-        });
-    }
+function renderFilteredImageWebGL(sourceImage, filterKey) {
+    const processor = getWebGLFilterProcessor();
+    return processor.render(sourceImage, getFilterModeValue(filterKey));
 }
 
 async function renderFilteredImage2D(sourceImage, filterKey) {
@@ -1265,33 +1196,159 @@ function createProgram(gl, vertexShader, fragmentShader) {
     return program;
 }
 
-function cleanupWebGLResources(gl, resources) {
-    if (!gl || !resources) return;
-
-    gl.bindTexture(gl.TEXTURE_2D, null);
-    gl.bindBuffer(gl.ARRAY_BUFFER, null);
-    gl.useProgram(null);
-
-    (resources.textures || []).forEach(texture => {
-        if (texture) gl.deleteTexture(texture);
-    });
-
-    (resources.buffers || []).forEach(buffer => {
-        if (buffer) gl.deleteBuffer(buffer);
-    });
-
-    if (resources.program) {
-        gl.deleteProgram(resources.program);
+function getWebGLFilterProcessor() {
+    if (filterEngineState.processor) {
+        return filterEngineState.processor;
     }
 
-    if (resources.vertexShader) {
-        gl.deleteShader(resources.vertexShader);
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl', { premultipliedAlpha: false, preserveDrawingBuffer: true });
+    if (!gl) {
+        throw new Error('WebGL unavailable');
     }
 
-    if (resources.fragmentShader) {
-        gl.deleteShader(resources.fragmentShader);
-    }
+    const vertexShader = compileShader(gl, gl.VERTEX_SHADER, `
+        attribute vec2 a_position;
+        attribute vec2 a_texCoord;
+        varying vec2 v_texCoord;
 
+        void main() {
+            gl_Position = vec4(a_position, 0.0, 1.0);
+            v_texCoord = a_texCoord;
+        }
+    `);
+
+    const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, `
+        precision mediump float;
+        varying vec2 v_texCoord;
+        uniform sampler2D u_image;
+        uniform float u_filterMode;
+
+        float luminance(vec3 color) {
+            return dot(color, vec3(0.299, 0.587, 0.114));
+        }
+
+        void main() {
+            vec4 sampleColor = texture2D(u_image, v_texCoord);
+            vec3 color = sampleColor.rgb;
+            float luma = luminance(color);
+
+            if (u_filterMode < 0.5) {
+                gl_FragColor = sampleColor;
+                return;
+            }
+
+            if (u_filterMode < 1.5) {
+                vec3 balanced = mix(color, vec3(luma), 0.35);
+                balanced = clamp((balanced - 0.5) * 1.55 + 0.54, 0.0, 1.0);
+                balanced = smoothstep(vec3(0.04), vec3(0.96), balanced);
+                gl_FragColor = vec4(balanced, sampleColor.a);
+                return;
+            }
+
+            if (u_filterMode < 2.5) {
+                float gray = clamp((luma - 0.5) * 1.5 + 0.5, 0.0, 1.0);
+                gl_FragColor = vec4(vec3(gray), sampleColor.a);
+                return;
+            }
+
+            float contrasted = clamp((luma - 0.48) * 2.4 + 0.5, 0.0, 1.0);
+            float binary = step(0.58, contrasted);
+            gl_FragColor = vec4(vec3(binary), sampleColor.a);
+        }
+    `);
+
+    const program = createProgram(gl, vertexShader, fragmentShader);
+    const positionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+        -1, -1,
+         1, -1,
+        -1,  1,
+        -1,  1,
+         1, -1,
+         1,  1
+    ]), gl.STATIC_DRAW);
+
+    const texCoordBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+        0, 1,
+        1, 1,
+        0, 0,
+        0, 0,
+        1, 1,
+        1, 0
+    ]), gl.STATIC_DRAW);
+
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+    gl.useProgram(program);
+
+    const positionLocation = gl.getAttribLocation(program, 'a_position');
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.enableVertexAttribArray(positionLocation);
+    gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+    const texCoordLocation = gl.getAttribLocation(program, 'a_texCoord');
+    gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+    gl.enableVertexAttribArray(texCoordLocation);
+    gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 0, 0);
+
+    const imageLocation = gl.getUniformLocation(program, 'u_image');
+    gl.uniform1i(imageLocation, 0);
+    const filterLocation = gl.getUniformLocation(program, 'u_filterMode');
+
+    const processor = {
+        gl,
+        canvas,
+        program,
+        vertexShader,
+        fragmentShader,
+        positionBuffer,
+        texCoordBuffer,
+        texture,
+        filterLocation,
+        render(sourceImage, filterModeValue) {
+            const width = sourceImage.width || sourceImage.naturalWidth;
+            const height = sourceImage.height || sourceImage.naturalHeight;
+            canvas.width = width;
+            canvas.height = height;
+            gl.viewport(0, 0, width, height);
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, texture);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sourceImage);
+            gl.uniform1f(filterLocation, filterModeValue);
+            gl.clearColor(0, 0, 0, 0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+            return canvas.toDataURL('image/png');
+        },
+        destroy() {
+            gl.bindTexture(gl.TEXTURE_2D, null);
+            gl.bindBuffer(gl.ARRAY_BUFFER, null);
+            gl.useProgram(null);
+            gl.deleteTexture(texture);
+            gl.deleteBuffer(positionBuffer);
+            gl.deleteBuffer(texCoordBuffer);
+            gl.deleteProgram(program);
+            gl.deleteShader(vertexShader);
+            gl.deleteShader(fragmentShader);
+        }
+    };
+
+    canvas.addEventListener('webglcontextlost', () => {
+        filterEngineState.processor = null;
+        setFilterEngineMode('cpu');
+    }, { once: true });
+
+    filterEngineState.processor = processor;
+    return processor;
 }
 
 // Interactive image transform functions for cover mode
