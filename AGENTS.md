@@ -1,7 +1,7 @@
 # AGENTS
 
 ## Run / Verify
-- Serve locally with `python3 -m http.server 8080` from repo root (`.vscode/tasks.json`); use `http://localhost:8080/` for any PWA or service-worker work.
+- Serve locally with `python3 -m http.server 8080` from repo root; use `http://localhost:8080/` for any PWA or service-worker work.
 - There is no package manifest, build, lint, typecheck, or automated test config in this repo. Verification is manual in the browser.
 - Good smoke test after UI/rendering changes: add an image, add a PDF page, switch grid and paper size, test cover-mode pan/zoom plus rotate, add a second page with a different grid, then export both `SD` and `HD`.
 
