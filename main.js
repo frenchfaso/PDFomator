@@ -91,6 +91,7 @@ const CELL_FILTERS = [
     { key: 'bw', label: 'BW', name: 'B&W' },
     { key: 'bitonal', label: '1', name: '1-bit' }
 ];
+const DEFAULT_BITONAL_THRESHOLD = 58;
 
 // Overlay management utilities
 const overlayManager = {
@@ -188,6 +189,15 @@ const filterEngineState = {
     mode: 'pending',
     processor: null,
     unavailableReason: ''
+};
+const bitonalPopoverState = {
+    cellIndex: null,
+    anchorRect: null,
+    longPressTimer: null,
+    suppressNextClick: false,
+    frameRequestId: null,
+    applying: false,
+    pendingThreshold: null
 };
 const cameraState = {
     stream: null,
@@ -458,7 +468,9 @@ function cacheElements() {
         exportSD: document.getElementById('exportSD'),
         exportHD: document.getElementById('exportHD'),
         cancelExport: document.getElementById('cancelExport'),
-        loading: document.getElementById('loading')
+        loading: document.getElementById('loading'),
+        bitonalPopover: document.getElementById('bitonalPopover'),
+        bitonalThresholdSlider: document.getElementById('bitonalThresholdSlider')
     };
 }
 
@@ -528,6 +540,7 @@ function setupEventListeners() {
     elements.cameraRetakeBtn.addEventListener('click', resetCameraCapture);
     elements.cameraDeviceSelect.addEventListener('change', handleCameraDeviceChange);
     elements.cancelCamera.addEventListener('click', cancelCameraOverlay);
+    elements.bitonalThresholdSlider.addEventListener('input', handleBitonalThresholdInput);
     
     // Export quality handlers
     elements.exportSD.addEventListener('click', () => handleQualityExport('SD'));
@@ -557,6 +570,7 @@ function setupEventListeners() {
     
     // Keyboard shortcuts
     document.addEventListener('keydown', handleKeyboard);
+    document.addEventListener('pointerdown', handleGlobalPointerDown, true);
 }
 
 function handleKeyboard(e) {
@@ -569,6 +583,7 @@ function handleKeyboard(e) {
         hidePageSelector();
         hideExportOverlay();
         hideLoading();
+        hideBitonalPopover();
     }
     
     // Ctrl/Cmd + E to export
@@ -923,6 +938,9 @@ function addToSpecificCell(content, title = '', cellIndex) {
         originalImage: imageData,
         title,
         filter: 'original',
+        filterSettings: {
+            bitonalThreshold: DEFAULT_BITONAL_THRESHOLD
+        },
         imageOperationId: 0,
         fillMode: 'contain', // Default fill mode
         transform: {
@@ -937,6 +955,9 @@ function addToSpecificCell(content, title = '', cellIndex) {
 }
 
 function removeCellContent(cellIndex) {
+    if (bitonalPopoverState.cellIndex === cellIndex) {
+        hideBitonalPopover();
+    }
     layoutState.cells[cellIndex] = null;
     // Re-render entire SVG sheet
     renderSVGSheet();
@@ -989,9 +1010,14 @@ async function applyCellFilter(cellIndex, filterKey) {
     const cellData = layoutState.cells[cellIndex];
     if (!cellData?.image) return;
 
+    if (bitonalPopoverState.cellIndex === cellIndex && filterKey !== 'bitonal') {
+        hideBitonalPopover();
+    }
+
     const originalImage = cellData.originalImage || cellData.image;
     const operationId = beginCellImageOperation(cellData);
     cellData.originalImage = originalImage;
+    cellData.filterSettings = cellData.filterSettings || { bitonalThreshold: DEFAULT_BITONAL_THRESHOLD };
     cellData.filter = filterKey;
 
     if (filterKey === 'original') {
@@ -1001,7 +1027,7 @@ async function applyCellFilter(cellIndex, filterKey) {
         return;
     }
 
-    const filteredImage = await applyWebGLFilterToImage(originalImage, filterKey);
+    const filteredImage = await applyWebGLFilterToImage(originalImage, filterKey, cellData.filterSettings);
     if (!isCellImageOperationCurrent(cellData, operationId)) return;
 
     cellData.image = filteredImage;
@@ -1026,12 +1052,13 @@ function rotateImage(cellIndex) {
         if (!isCellImageOperationCurrent(cellData, operationId)) return;
 
         cellData.originalImage = rotatedImageData;
+        cellData.filterSettings = cellData.filterSettings || { bitonalThreshold: DEFAULT_BITONAL_THRESHOLD };
         cellData.filter = cellData.filter || 'original';
 
         if (cellData.filter === 'original') {
             cellData.image = rotatedImageData;
         } else {
-            const filteredImage = await applyWebGLFilterToImage(rotatedImageData, cellData.filter);
+            const filteredImage = await applyWebGLFilterToImage(rotatedImageData, cellData.filter, cellData.filterSettings);
             if (!isCellImageOperationCurrent(cellData, operationId)) return;
             cellData.image = filteredImage;
         }
@@ -1114,31 +1141,35 @@ function getFilterModeValue(filterKey) {
     }
 }
 
+function getBitonalThreshold(cellData) {
+    return cellData?.filterSettings?.bitonalThreshold ?? DEFAULT_BITONAL_THRESHOLD;
+}
+
 function getCellFilterConfig(filterKey) {
     return CELL_FILTERS.find(filter => filter.key === filterKey) || CELL_FILTERS[0];
 }
 
-async function applyWebGLFilterToImage(imageData, filterKey) {
+async function applyWebGLFilterToImage(imageData, filterKey, filterSettings = null) {
     const sourceCanvas = await getCachedSourceCanvas(imageData);
 
     try {
-        const filteredDataUrl = renderFilteredImageWebGL(sourceCanvas, filterKey);
+        const filteredDataUrl = renderFilteredImageWebGL(sourceCanvas, filterKey, filterSettings);
         setFilterEngineMode('gpu');
         return createPersistentImageFromDataUrl(filteredDataUrl);
     } catch (error) {
         console.warn('WebGL filter fallback triggered:', error);
         filterEngineState.unavailableReason = String(error);
         setFilterEngineMode('cpu');
-        return renderFilteredImage2D(sourceCanvas, filterKey);
+        return renderFilteredImage2D(sourceCanvas, filterKey, filterSettings);
     }
 }
 
-function renderFilteredImageWebGL(sourceImage, filterKey) {
+function renderFilteredImageWebGL(sourceImage, filterKey, filterSettings = null) {
     const processor = getWebGLFilterProcessor();
-    return processor.render(sourceImage, getFilterModeValue(filterKey));
+    return processor.render(sourceImage, getFilterModeValue(filterKey), (filterSettings?.bitonalThreshold ?? DEFAULT_BITONAL_THRESHOLD) / 100);
 }
 
-async function renderFilteredImage2D(sourceImage, filterKey) {
+async function renderFilteredImage2D(sourceImage, filterKey, filterSettings = null) {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     canvas.width = sourceImage.naturalWidth || sourceImage.width;
@@ -1151,6 +1182,8 @@ async function renderFilteredImage2D(sourceImage, filterKey) {
     ctx.drawImage(sourceImage, 0, 0);
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const pixels = imageData.data;
+
+    const bitonalThreshold = (filterSettings?.bitonalThreshold ?? DEFAULT_BITONAL_THRESHOLD) / 100;
 
     for (let i = 0; i < pixels.length; i += 4) {
         const r = pixels[i] / 255;
@@ -1172,7 +1205,7 @@ async function renderFilteredImage2D(sourceImage, filterKey) {
             outG = gray;
             outB = gray;
         } else if (filterKey === 'bitonal') {
-            const binary = ((luma - 0.48) * 2.4 + 0.5) >= 0.58 ? 1 : 0;
+            const binary = ((luma - 0.48) * 2.4 + 0.5) >= bitonalThreshold ? 1 : 0;
             outR = binary;
             outG = binary;
             outB = binary;
@@ -1243,6 +1276,7 @@ function getWebGLFilterProcessor() {
         varying vec2 v_texCoord;
         uniform sampler2D u_image;
         uniform float u_filterMode;
+        uniform float u_bitonalThreshold;
 
         float luminance(vec3 color) {
             return dot(color, vec3(0.299, 0.587, 0.114));
@@ -1273,7 +1307,7 @@ function getWebGLFilterProcessor() {
             }
 
             float contrasted = clamp((luma - 0.48) * 2.4 + 0.5, 0.0, 1.0);
-            float binary = step(0.58, contrasted);
+            float binary = step(u_bitonalThreshold, contrasted);
             gl_FragColor = vec4(vec3(binary), sampleColor.a);
         }
     `);
@@ -1323,6 +1357,7 @@ function getWebGLFilterProcessor() {
     const imageLocation = gl.getUniformLocation(program, 'u_image');
     gl.uniform1i(imageLocation, 0);
     const filterLocation = gl.getUniformLocation(program, 'u_filterMode');
+    const bitonalThresholdLocation = gl.getUniformLocation(program, 'u_bitonalThreshold');
 
     const processor = {
         gl,
@@ -1334,7 +1369,8 @@ function getWebGLFilterProcessor() {
         texCoordBuffer,
         texture,
         filterLocation,
-        render(sourceImage, filterModeValue) {
+        bitonalThresholdLocation,
+        render(sourceImage, filterModeValue, bitonalThreshold) {
             const width = sourceImage.width || sourceImage.naturalWidth;
             const height = sourceImage.height || sourceImage.naturalHeight;
             canvas.width = width;
@@ -1344,6 +1380,7 @@ function getWebGLFilterProcessor() {
             gl.bindTexture(gl.TEXTURE_2D, texture);
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sourceImage);
             gl.uniform1f(filterLocation, filterModeValue);
+            gl.uniform1f(bitonalThresholdLocation, bitonalThreshold);
             gl.clearColor(0, 0, 0, 0);
             gl.clear(gl.COLOR_BUFFER_BIT);
             gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -1847,8 +1884,13 @@ function renderSVGCell(cellContentGroup, cellUIGroup, cellIndex, cellX, cellY, c
         filterBtn.appendChild(filterBtnText);
         filterBtn.addEventListener('click', (e) => {
             e.stopPropagation();
+            if (bitonalPopoverState.suppressNextClick) {
+                bitonalPopoverState.suppressNextClick = false;
+                return;
+            }
             cycleCellFilter(cellIndex);
         });
+        bindBitonalPopoverTriggers(filterBtn, cellIndex);
 
         cellUIGroup.appendChild(filterBtn);
         
@@ -2501,6 +2543,156 @@ function showStatusToast(message, duration = 2000) {
         }
         statusToastTimeoutId = null;
     }, duration);
+}
+
+function showBitonalPopover(cellIndex, anchorRect) {
+    const cellData = layoutState.cells[cellIndex];
+    if (!cellData?.image) return;
+
+    cellData.filterSettings = cellData.filterSettings || { bitonalThreshold: DEFAULT_BITONAL_THRESHOLD };
+    bitonalPopoverState.cellIndex = cellIndex;
+    bitonalPopoverState.anchorRect = anchorRect;
+
+    elements.bitonalThresholdSlider.value = String(getBitonalThreshold(cellData));
+    positionBitonalPopover(anchorRect);
+    elements.bitonalPopover.classList.remove('hidden');
+}
+
+function positionBitonalPopover(anchorRect = bitonalPopoverState.anchorRect) {
+    if (!anchorRect || !elements.bitonalPopover) return;
+
+    const popover = elements.bitonalPopover;
+    const popoverWidth = Math.min(window.innerWidth * 0.42, 220);
+    const left = Math.min(
+        Math.max(12, anchorRect.left + (anchorRect.width / 2) - (popoverWidth / 2)),
+        window.innerWidth - popoverWidth - 12
+    );
+    const top = Math.max(12, anchorRect.bottom + 10);
+
+    popover.style.left = `${left}px`;
+    popover.style.top = `${top}px`;
+}
+
+function hideBitonalPopover() {
+    clearBitonalLongPress();
+    if (bitonalPopoverState.frameRequestId) {
+        cancelAnimationFrame(bitonalPopoverState.frameRequestId);
+        bitonalPopoverState.frameRequestId = null;
+    }
+    bitonalPopoverState.cellIndex = null;
+    bitonalPopoverState.anchorRect = null;
+    bitonalPopoverState.suppressNextClick = false;
+    bitonalPopoverState.applying = false;
+    bitonalPopoverState.pendingThreshold = null;
+    if (elements.bitonalPopover) {
+        elements.bitonalPopover.classList.add('hidden');
+    }
+}
+
+function clearBitonalLongPress() {
+    if (bitonalPopoverState.longPressTimer) {
+        clearTimeout(bitonalPopoverState.longPressTimer);
+        bitonalPopoverState.longPressTimer = null;
+    }
+}
+
+function handleGlobalPointerDown(event) {
+    if (elements.bitonalPopover?.classList.contains('hidden')) {
+        return;
+    }
+
+    if (elements.bitonalPopover.contains(event.target)) {
+        return;
+    }
+
+    hideBitonalPopover();
+}
+
+function handleBitonalThresholdInput() {
+    const cellIndex = bitonalPopoverState.cellIndex;
+    const cellData = cellIndex !== null ? layoutState.cells[cellIndex] : null;
+    if (!cellData?.image) return;
+
+    cellData.filterSettings = cellData.filterSettings || { bitonalThreshold: DEFAULT_BITONAL_THRESHOLD };
+    bitonalPopoverState.pendingThreshold = Number(elements.bitonalThresholdSlider.value);
+
+    if (bitonalPopoverState.frameRequestId) {
+        return;
+    }
+
+    bitonalPopoverState.frameRequestId = requestAnimationFrame(() => {
+        bitonalPopoverState.frameRequestId = null;
+        applyBitonalThresholdPreview();
+    });
+}
+
+async function applyBitonalThresholdPreview() {
+    const cellIndex = bitonalPopoverState.cellIndex;
+    const cellData = cellIndex !== null ? layoutState.cells[cellIndex] : null;
+    if (!cellData?.image || cellData.filter !== 'bitonal') return;
+
+    if (bitonalPopoverState.applying) {
+        return;
+    }
+
+    const nextThreshold = bitonalPopoverState.pendingThreshold;
+    if (nextThreshold === null) {
+        return;
+    }
+
+    bitonalPopoverState.pendingThreshold = null;
+    cellData.filterSettings = cellData.filterSettings || { bitonalThreshold: DEFAULT_BITONAL_THRESHOLD };
+    cellData.filterSettings.bitonalThreshold = nextThreshold;
+    bitonalPopoverState.applying = true;
+
+    try {
+        await applyCellFilter(cellIndex, 'bitonal');
+    } catch (error) {
+        console.error('Failed to update 1-bit threshold:', error);
+    } finally {
+        bitonalPopoverState.applying = false;
+
+        if (bitonalPopoverState.pendingThreshold !== null && bitonalPopoverState.cellIndex === cellIndex) {
+            applyBitonalThresholdPreview();
+        }
+    }
+}
+
+function bindBitonalPopoverTriggers(filterBtn, cellIndex) {
+    filterBtn.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openBitonalPopoverForCell(cellIndex, filterBtn.getBoundingClientRect());
+    });
+
+    filterBtn.addEventListener('pointerdown', (event) => {
+        if (event.pointerType !== 'touch') return;
+        clearBitonalLongPress();
+        bitonalPopoverState.longPressTimer = setTimeout(() => {
+            bitonalPopoverState.suppressNextClick = true;
+            openBitonalPopoverForCell(cellIndex, filterBtn.getBoundingClientRect());
+        }, 450);
+    });
+
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(eventName => {
+        filterBtn.addEventListener(eventName, clearBitonalLongPress);
+    });
+}
+
+async function openBitonalPopoverForCell(cellIndex, anchorRect) {
+    const cellData = layoutState.cells[cellIndex];
+    if (!cellData?.image) return;
+
+    if (cellData.filter !== 'bitonal') {
+        try {
+            await applyCellFilter(cellIndex, 'bitonal');
+        } catch (error) {
+            console.error('Failed to open 1-bit threshold control:', error);
+            return;
+        }
+    }
+
+    showBitonalPopover(cellIndex, anchorRect);
 }
 
 // Export functionality
