@@ -4,19 +4,238 @@
 import * as pdfjsLib from './vendor/pdf.mjs';
 
 // Application state
-const layoutState = {
-    sheet: {
+function createEmptyPageState(template = null) {
+    const sourceSheet = template?.sheet || {
         paperSize: 'A4',
         orientation: 'portrait',
-        width: 210, // mm
-        height: 297 // mm
-    },
-    grid: {
-        cols: 1,
-        rows: 2
-    },
-    cells: [] // Array of cell contents
+        width: 210,
+        height: 297
+    };
+    const sourceGrid = template?.grid || { cols: 1, rows: 2 };
+
+    return {
+        sheet: {
+            paperSize: sourceSheet.paperSize,
+            orientation: sourceSheet.orientation,
+            width: sourceSheet.width,
+            height: sourceSheet.height
+        },
+        grid: {
+            cols: sourceGrid.cols,
+            rows: sourceGrid.rows
+        },
+        cells: []
+    };
+}
+
+const appState = {
+    pages: [createEmptyPageState()],
+    currentPageIndex: 0
 };
+
+function getCurrentPageState() {
+    return appState.pages[appState.currentPageIndex];
+}
+
+function pageHasContent(pageState) {
+    return pageState.cells.some(cell => !!cell);
+}
+
+function syncPageDimensions(pageState) {
+    const size = CONFIG.paperSizes[pageState.sheet.paperSize];
+    if (pageState.sheet.orientation === 'portrait') {
+        pageState.sheet.width = size.width;
+        pageState.sheet.height = size.height;
+    } else {
+        pageState.sheet.width = size.height;
+        pageState.sheet.height = size.width;
+    }
+}
+
+function renderCurrentPage() {
+    const pageState = getCurrentPageState();
+    syncPageDimensions(pageState);
+    elements.sheet.className = `sheet ${pageState.sheet.paperSize.toLowerCase()}-${pageState.sheet.orientation}`;
+    updatePageControls();
+    updateSheetViewportMetrics();
+    renderSVGSheet();
+    requestAnimationFrame(syncPagePreviewMetrics);
+}
+
+function animatePageTransition(direction) {
+    if (!elements.sheet || !direction) return;
+
+    const nextClass = direction === 'next' ? 'page-transition-next' : 'page-transition-prev';
+    const prevClass = direction === 'next' ? 'page-transition-prev' : 'page-transition-next';
+    elements.sheet.classList.remove(prevClass);
+    void elements.sheet.offsetWidth;
+    elements.sheet.classList.add(nextClass);
+
+    const handleAnimationEnd = () => {
+        elements.sheet.classList.remove(nextClass);
+        elements.sheet.removeEventListener('animationend', handleAnimationEnd);
+    };
+
+    elements.sheet.addEventListener('animationend', handleAnimationEnd);
+}
+
+function updatePageControls() {
+    const totalPages = appState.pages.length;
+    const currentPage = appState.currentPageIndex + 1;
+    const hasMultiplePages = totalPages > 1;
+
+    elements.pageControls.classList.toggle('single-page', !hasMultiplePages);
+    elements.pageIndicator.textContent = `${currentPage} / ${totalPages}`;
+    elements.pageIndicator.classList.toggle('hidden', !hasMultiplePages);
+    elements.prevPageBtn.classList.toggle('hidden', !hasMultiplePages);
+    elements.nextPageBtn.classList.toggle('hidden', !hasMultiplePages);
+    elements.removePageBtn.classList.toggle('hidden', !hasMultiplePages);
+    elements.prevPageBtn.disabled = !hasMultiplePages || appState.currentPageIndex === 0;
+    elements.nextPageBtn.disabled = !hasMultiplePages || appState.currentPageIndex === totalPages - 1;
+}
+
+function closePageScopedUI() {
+    hideBitonalPopover();
+    currentTargetCell = null;
+}
+
+function updateSheetViewportMetrics() {
+    if (!elements.sheetStack || !elements.mainContent || !elements.pageControls) {
+        return;
+    }
+
+    const contentHeight = elements.mainContent.clientHeight;
+    const controlsHeight = elements.pageControls.offsetHeight || 44;
+    const stackStyles = window.getComputedStyle(elements.sheetStack);
+    const gap = parseFloat(stackStyles.rowGap || stackStyles.gap || '0') || 0;
+    const shadowAllowance = 12;
+    const availableHeight = Math.max(160, contentHeight - controlsHeight - gap - shadowAllowance);
+    elements.sheetStack.style.setProperty('--sheet-available-height', `${availableHeight}px`);
+}
+
+function syncPagePreviewMetrics() {
+    if (!elements.sheet || !elements.pageControls) {
+        return;
+    }
+
+    const sheetWidth = elements.sheet.getBoundingClientRect().width;
+    if (sheetWidth > 0) {
+        elements.pageControls.style.setProperty('--sheet-preview-width', `${sheetWidth}px`);
+    }
+}
+
+function handleViewportResize() {
+    hideBitonalPopover();
+    updateSheetViewportMetrics();
+    requestAnimationFrame(syncPagePreviewMetrics);
+}
+
+function hasBlockingOverlayOpen() {
+    return !!overlayManager.currentOverlay || !elements.bitonalPopover.classList.contains('hidden');
+}
+
+function handlePageSwipeStart(event) {
+    if (appState.pages.length <= 1 || hasBlockingOverlayOpen() || event.touches.length !== 1) {
+        resetPageSwipeTracking();
+        return;
+    }
+
+    const touch = event.touches[0];
+    pageSwipeState.startX = touch.clientX;
+    pageSwipeState.startY = touch.clientY;
+    pageSwipeState.tracking = true;
+}
+
+function handlePageSwipeEnd(event) {
+    if (!pageSwipeState.tracking || appState.pages.length <= 1 || event.changedTouches.length !== 1) {
+        resetPageSwipeTracking();
+        return;
+    }
+
+    const touch = event.changedTouches[0];
+    const deltaX = touch.clientX - pageSwipeState.startX;
+    const deltaY = touch.clientY - pageSwipeState.startY;
+    resetPageSwipeTracking();
+
+    if (Math.abs(deltaX) < 50 || Math.abs(deltaX) < Math.abs(deltaY) * 1.4) {
+        return;
+    }
+
+    if (deltaX < 0) {
+        goToNextPage();
+    } else {
+        goToPreviousPage();
+    }
+}
+
+function resetPageSwipeTracking() {
+    pageSwipeState.startX = 0;
+    pageSwipeState.startY = 0;
+    pageSwipeState.tracking = false;
+}
+
+function switchToPage(pageIndex) {
+    if (pageIndex < 0 || pageIndex >= appState.pages.length || pageIndex === appState.currentPageIndex) {
+        return;
+    }
+
+    const direction = pageIndex > appState.currentPageIndex ? 'next' : 'prev';
+    closePageScopedUI();
+    appState.currentPageIndex = pageIndex;
+    renderCurrentPage();
+    animatePageTransition(direction);
+}
+
+function goToPreviousPage() {
+    switchToPage(appState.currentPageIndex - 1);
+}
+
+function goToNextPage() {
+    switchToPage(appState.currentPageIndex + 1);
+}
+
+function addPage() {
+    const pageTemplate = getCurrentPageState();
+    appState.pages.push(createEmptyPageState(pageTemplate));
+    switchToPage(appState.pages.length - 1);
+}
+
+function removeCurrentPage() {
+    if (appState.pages.length === 1) {
+        return;
+    }
+
+    const currentPage = getCurrentPageState();
+    if (pageHasContent(currentPage) && !window.confirm('Delete this page and its contents?')) {
+        return;
+    }
+
+    closePageScopedUI();
+    const removedIndex = appState.currentPageIndex;
+    appState.pages.splice(appState.currentPageIndex, 1);
+    appState.currentPageIndex = Math.min(appState.currentPageIndex, appState.pages.length - 1);
+    renderCurrentPage();
+    animatePageTransition(appState.currentPageIndex < removedIndex ? 'prev' : 'next');
+}
+
+const layoutState = new Proxy({}, {
+    get(_target, property) {
+        return getCurrentPageState()[property];
+    },
+    set(_target, property, value) {
+        getCurrentPageState()[property] = value;
+        return true;
+    },
+    ownKeys() {
+        return Reflect.ownKeys(getCurrentPageState());
+    },
+    getOwnPropertyDescriptor() {
+        return {
+            enumerable: true,
+            configurable: true
+        };
+    }
+});
 
 // Configuration
 const CONFIG = {
@@ -199,6 +418,11 @@ const bitonalPopoverState = {
     applying: false,
     pendingThreshold: null
 };
+const pageSwipeState = {
+    startX: 0,
+    startY: 0,
+    tracking: false
+};
 const cameraState = {
     stream: null,
     capturedDataUrl: null,
@@ -242,12 +466,11 @@ async function init() {
     await setupPDFWorker();
     warmFilterEngineCapability();
     
-    // Initialize the sheet size and grid
-    updateSheetSize();
-    updateSheetGrid();
-    
     // Setup event listeners
     setupEventListeners();
+
+    // Initialize the current page view
+    renderCurrentPage();
 }
 
 function registerServiceWorker() {
@@ -435,6 +658,14 @@ function refreshVersionDisplay() {
 function cacheElements() {
     elements = {
         sheet: document.getElementById('sheet'),
+        sheetStack: document.getElementById('sheetStack'),
+        pageControls: document.getElementById('pageControls'),
+        prevPageBtn: document.getElementById('prevPageBtn'),
+        nextPageBtn: document.getElementById('nextPageBtn'),
+        addPageBtn: document.getElementById('addPageBtn'),
+        removePageBtn: document.getElementById('removePageBtn'),
+        pageIndicator: document.getElementById('pageIndicator'),
+        mainContent: document.querySelector('.main-content'),
         sizeBtn: document.getElementById('sizeBtn'),
         gridBtn: document.getElementById('gridBtn'),
         exportBtn: document.getElementById('exportBtn'),
@@ -518,6 +749,10 @@ function setupEventListeners() {
     elements.sizeBtn.addEventListener('click', handleSizePicker);
     elements.gridBtn.addEventListener('click', handleGridPicker);
     elements.exportBtn.addEventListener('click', handleExport);
+    elements.prevPageBtn.addEventListener('click', goToPreviousPage);
+    elements.nextPageBtn.addEventListener('click', goToNextPage);
+    elements.addPageBtn.addEventListener('click', addPage);
+    elements.removePageBtn.addEventListener('click', removeCurrentPage);
     
     // File input handlers
     elements.pdfInput.addEventListener('change', handlePDFSelection);
@@ -571,9 +806,21 @@ function setupEventListeners() {
     // Keyboard shortcuts
     document.addEventListener('keydown', handleKeyboard);
     document.addEventListener('pointerdown', handleGlobalPointerDown, true);
+    window.addEventListener('resize', handleViewportResize);
+    elements.sheetStack.addEventListener('touchstart', handlePageSwipeStart, { passive: true });
+    elements.sheetStack.addEventListener('touchend', handlePageSwipeEnd, { passive: true });
+    elements.sheetStack.addEventListener('touchcancel', resetPageSwipeTracking, { passive: true });
 }
 
 function handleKeyboard(e) {
+    const target = e.target;
+    const isFormControl = target instanceof HTMLElement && (
+        target.tagName === 'INPUT'
+        || target.tagName === 'SELECT'
+        || target.tagName === 'TEXTAREA'
+        || target.isContentEditable
+    );
+
     // ESC to close overlays
     if (e.key === 'Escape') {
         hideGridPicker();
@@ -591,6 +838,16 @@ function handleKeyboard(e) {
         e.preventDefault();
         handleExport();
     }
+
+    if (!isFormControl && !e.ctrlKey && !e.metaKey && !e.altKey && appState.pages.length > 1 && !hasBlockingOverlayOpen()) {
+        if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            goToPreviousPage();
+        } else if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            goToNextPage();
+        }
+    }
 }
 
 function handleSizePicker() {
@@ -607,7 +864,7 @@ function handleGridPicker() {
 }
 
 async function handleExport() {
-    if (layoutState.cells.filter(cell => cell).length === 0) {
+    if (!appState.pages.some(pageHasContent)) {
         alert('Please add some content to export!');
         return;
     }
@@ -818,13 +1075,17 @@ async function showPDFPageSelector(pdf, fileName, cellIndex) {
     // Show the page selector immediately
     showPageSelector();
     
-    pageSelectorSession = { canceled: false };
+    pageSelectorSession = {
+        canceled: false,
+        pageIndex: appState.currentPageIndex,
+        cellIndex
+    };
 
     // Start the thumbnail generation process
-    generateThumbnailsSequentially(pdf, fileName, cellIndex, pageGrid, pageSelectorSession);
+    generateThumbnailsSequentially(pdf, fileName, pageGrid, pageSelectorSession);
 }
 
-async function generateThumbnailsSequentially(pdf, fileName, cellIndex, pageGrid, session) {
+async function generateThumbnailsSequentially(pdf, fileName, pageGrid, session) {
     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
         // Check if generation was canceled before processing each page
         if (session.canceled || pageSelectorSession !== session) {
@@ -860,7 +1121,7 @@ async function generateThumbnailsSequentially(pdf, fileName, cellIndex, pageGrid
                 showLoading('Processing selected page...');
                 
                 // Process the selected page immediately
-                processSelectedPage(pdf, pageNum, fileName, cellIndex);
+                processSelectedPage(pdf, pageNum, fileName, session.pageIndex, session.cellIndex);
             });
             
             pageGrid.appendChild(pageDiv);
@@ -913,14 +1174,19 @@ function cancelPDFPageSelectorGeneration() {
     }
 }
 
-async function processSelectedPage(pdf, pageNum, fileName, cellIndex) {
+async function processSelectedPage(pdf, pageNum, fileName, pageIndex, cellIndex) {
+    const originalPageIndex = appState.currentPageIndex;
+
     try {
         const selectedPage = await pdf.getPage(pageNum);
         const bitmap = await renderPDFPage(selectedPage, 2, 'bitmap');
+        appState.currentPageIndex = pageIndex;
         addToSpecificCell(bitmap, `${fileName} p${pageNum}`, cellIndex);
     } catch (error) {
         alert('Failed to process selected page.');
     } finally {
+        appState.currentPageIndex = originalPageIndex;
+        renderCurrentPage();
         hideLoading();
     }
 }
@@ -1711,25 +1977,7 @@ function updateSingleCell(cellIndex) {
 }
 
 function updateSheetSize() {
-    const { paperSize, orientation } = layoutState.sheet;
-    const size = CONFIG.paperSizes[paperSize];
-    
-    // Update dimensions in state
-    if (orientation === 'portrait') {
-        layoutState.sheet.width = size.width;
-        layoutState.sheet.height = size.height;
-    } else {
-        layoutState.sheet.width = size.height;
-        layoutState.sheet.height = size.width;
-    }
-    
-    // Update CSS classes directly on the sheet element
-    elements.sheet.className = `sheet ${paperSize.toLowerCase()}-${orientation}`;
-    
-    // Re-render SVG if it exists
-    if (elements.sheet.querySelector('svg')) {
-        renderSVGSheet();
-    }
+    renderCurrentPage();
 }
 
 // SVG cell rendering function
@@ -2112,10 +2360,7 @@ function renderSVGSheet() {
 }
 
 function updateSheetGrid() {
-    const { rows, cols } = layoutState.grid;
-    
-    // Create or update SVG sheet preview
-    renderSVGSheet();
+    renderCurrentPage();
 }
 
 function setupGridMatrix() {
@@ -2713,43 +2958,61 @@ async function handleQualityExport(quality) {
 }
 
 async function assemblePDF(quality) {
-    const { width, height, orientation } = layoutState.sheet;
     const { scale, jpegQuality } = EXPORT_QUALITY[quality];
-    const pdf = new jsPDF({ 
-        orientation: orientation === 'landscape' ? 'l' : 'p', 
-        unit: 'mm', 
-        format: [width, height] 
-    });
-    
-    showLoading('Rasterizing sheet...');
-    const renderedSheet = await renderSheetToFullCanvas(scale);
-    
-    // Process each cell that has content
-    for (let i = 0; i < layoutState.cells.length; i++) {
-        if (layoutState.cells[i]) {
-            const imageBounds = getActualImageBounds(i);
-            if (!imageBounds) {
-                continue;
+    const originalPageIndex = appState.currentPageIndex;
+    let pdf = null;
+
+    try {
+        for (let pageIndex = 0; pageIndex < appState.pages.length; pageIndex++) {
+            appState.currentPageIndex = pageIndex;
+            renderCurrentPage();
+
+            const { width, height, orientation } = layoutState.sheet;
+            if (!pdf) {
+                pdf = new jsPDF({
+                    orientation: orientation === 'landscape' ? 'l' : 'p',
+                    unit: 'mm',
+                    format: [width, height]
+                });
+            } else {
+                pdf.addPage([width, height], orientation === 'landscape' ? 'l' : 'p');
             }
 
-            const cellImageData = extractCellImageFromRenderedSheet(renderedSheet, imageBounds, scale, jpegQuality);
-            if (!cellImageData) {
-                continue;
+            showLoading(`Rasterizing page ${pageIndex + 1} of ${appState.pages.length}...`);
+            const renderedSheet = await renderSheetToFullCanvas(scale);
+
+            for (let i = 0; i < layoutState.cells.length; i++) {
+                if (!layoutState.cells[i]) {
+                    continue;
+                }
+
+                const imageBounds = getActualImageBounds(i);
+                if (!imageBounds) {
+                    continue;
+                }
+
+                const cellImageData = extractCellImageFromRenderedSheet(renderedSheet, imageBounds, scale, jpegQuality);
+                if (!cellImageData) {
+                    continue;
+                }
+
+                pdf.addImage(
+                    cellImageData,
+                    'JPEG',
+                    imageBounds.x,
+                    imageBounds.y,
+                    imageBounds.width,
+                    imageBounds.height
+                );
             }
-            
-            pdf.addImage(
-                cellImageData, 
-                'JPEG', 
-                imageBounds.x, 
-                imageBounds.y, 
-                imageBounds.width, 
-                imageBounds.height
-            );
         }
+
+        showLoading('Assembling PDF...');
+        return pdf;
+    } finally {
+        appState.currentPageIndex = originalPageIndex;
+        renderCurrentPage();
     }
-    
-    showLoading('Assembling PDF...');
-    return pdf;
 }
 
 async function renderSheetToFullCanvas(scale) {

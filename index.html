@@ -29,7 +29,18 @@
         
         <!-- Main Content -->
         <main class="main-content">
-            <div id="sheet" class="sheet a4-portrait"></div>
+            <div id="sheetStack" class="sheet-stack">
+                <div id="sheet" class="sheet a4-portrait"></div>
+                <div id="pageControls" class="page-controls" aria-label="Page controls">
+                    <button id="prevPageBtn" class="page-control-btn page-nav-btn hidden" aria-label="Previous Page">&lt;</button>
+                    <div class="page-center-controls">
+                        <button id="removePageBtn" class="page-control-btn hidden" aria-label="Remove Current Page">-</button>
+                        <span id="pageIndicator" class="page-indicator hidden">1 / 1</span>
+                        <button id="addPageBtn" class="page-control-btn" aria-label="Add Page">+</button>
+                    </div>
+                    <button id="nextPageBtn" class="page-control-btn page-nav-btn hidden" aria-label="Next Page">&gt;</button>
+                </div>
+            </div>
         </main>
         
         <!-- Bottom FABs Container -->
