@@ -1,7 +1,7 @@
 // PDFomator Service Worker
 // Simple offline cache for static assets
 
-const CACHE_NAME = 'pdfomator-v1.3.5';
+const CACHE_NAME = 'pdfomator-v1.3.6';
 const STATIC_ASSETS = [
     './',
     './index.html',
@@ -22,22 +22,6 @@ function shouldCache(url) {
     return urlObj.origin === self.location.origin;
 }
 
-// Utility function to check if response should be cached
-function shouldCacheResponse(response) {
-    const contentType = response.headers.get('content-type') || '';
-    const cacheableTypes = [
-        'text/html',
-        'text/css', 
-        'text/javascript',
-        'application/javascript',
-        'application/json',
-        'image/',
-        'font/'
-    ];
-    
-    return cacheableTypes.some(type => contentType.includes(type));
-}
-
 // Production logging utility
 function log(level, message, ...args) {
     // In production, only log warnings and errors
@@ -45,23 +29,6 @@ function log(level, message, ...args) {
     
     if (!isProduction || level === 'warn' || level === 'error') {
         console[level](`[SW] ${message}`, ...args);
-    }
-}
-
-// Utility function to manage cache size
-async function limitCacheSize(cacheName, maxEntries = 50) {
-    const cache = await caches.open(cacheName);
-    const keys = await cache.keys();
-    
-    if (keys.length > maxEntries) {
-        // Remove oldest entries (first in, first out)
-        const entriesToDelete = keys.slice(0, keys.length - maxEntries);
-        await Promise.all(
-            entriesToDelete.map(key => {
-                log('log', 'Removing old cache entry:', key.url);
-                return cache.delete(key);
-            })
-        );
     }
 }
 
@@ -145,22 +112,6 @@ self.addEventListener('fetch', event => {
                 
                 log('log', 'Fetching from network:', event.request.url);
                 return fetch(event.request)
-                    .then(response => {
-                        // Only cache successful responses and specific content types
-                        if (response.status === 200 && shouldCacheResponse(response)) {
-                            const responseClone = response.clone();
-                            caches.open(CACHE_NAME)
-                                .then(async cache => {
-                                    await cache.put(event.request, responseClone);
-                                    // Manage cache size to prevent unlimited growth
-                                    await limitCacheSize(CACHE_NAME);
-                                })
-                                .catch(error => {
-                                    log('warn', 'Failed to cache response:', error);
-                                });
-                        }
-                        return response;
-                    })
                     .catch(error => {
                         log('error', 'Fetch failed:', error);
                         

@@ -62,7 +62,6 @@ const CONFIG = {
     
     // Cache management
     cache: {
-        maxEntries: 50,             // Maximum cache entries
         updateCheckInterval: 60000  // Check for updates every 60 seconds
     },
 
@@ -75,13 +74,13 @@ const CONFIG = {
 // Export quality configuration
 const EXPORT_QUALITY = {
     SD: { 
-        scale: 4.0,        // 384 DPI (doubled)
-        jpegQuality: 0.8,  // 80% compression (improved)
+        scale: 4.0,        // Raster scale in px/mm, tuned for the current export pipeline
+        jpegQuality: 0.8,
         label: 'Standard (Fast)'
     },
     HD: { 
-        scale: 6.0,        // 576 DPI (doubled)
-        jpegQuality: 0.9,  // 90% compression  
+        scale: 6.0,
+        jpegQuality: 0.9,
         label: 'High Quality'
     }
 };
@@ -182,6 +181,9 @@ const overlayManager = {
 let elements = {};
 let currentTargetCell = null; // Track which cell is being filled
 let pageSelectorSession = null;
+let lastKnownCacheVersion = '';
+let statusToastTimeoutId = null;
+let activeStatusToast = null;
 const filterEngineState = {
     mode: 'pending',
     processor: null,
@@ -193,6 +195,15 @@ const cameraState = {
     devices: [],
     selectedDeviceId: ''
 };
+
+function beginCellImageOperation(cellData) {
+    cellData.imageOperationId = (cellData.imageOperationId || 0) + 1;
+    return cellData.imageOperationId;
+}
+
+function isCellImageOperationCurrent(cellData, operationId) {
+    return !!cellData && cellData.imageOperationId === operationId;
+}
 
 // Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', init);
@@ -239,7 +250,7 @@ function registerServiceWorker() {
                 console.log('[App] Service Worker registered successfully:', registration.scope);
                 
                 // Get and display version from service worker
-                getServiceWorkerVersion();
+                getServiceWorkerVersion(registration);
 
                 // If an update is already waiting, offer it once.
                 if (registration.waiting && !isLocalhost) {
@@ -284,6 +295,7 @@ function registerServiceWorker() {
 
             if (isLocalhost) {
                 console.log('[App] Service Worker controller changed on localhost');
+                getServiceWorkerVersion();
                 return;
             }
 
@@ -339,25 +351,28 @@ function showUpdateNotification(registration) {
     console.log('[App] Update notification shown');
 }
 
-async function getServiceWorkerVersion() {
+async function getServiceWorkerVersion(registration = null) {
     console.log('[App] Attempting to get version from service worker');
     
     if (!('serviceWorker' in navigator)) {
         console.log('[App] Service Worker not supported');
         return;
     }
-    
-    // Try to get version from active service worker
-    const serviceWorker = navigator.serviceWorker.controller || navigator.serviceWorker.active;
-    
-    if (!serviceWorker) {
-        console.log('[App] No active service worker found, retrying in 500ms...');
-        // Retry after a short delay
-        setTimeout(() => getServiceWorkerVersion(), 500);
-        return;
-    }
-    
+
     try {
+        const readyRegistration = await navigator.serviceWorker.ready;
+        const resolvedRegistration = registration || readyRegistration;
+        const serviceWorker = navigator.serviceWorker.controller
+            || readyRegistration?.active
+            || resolvedRegistration?.active
+            || resolvedRegistration?.waiting
+            || resolvedRegistration?.installing;
+
+        if (!serviceWorker) {
+            console.warn('[App] No service worker available for version lookup');
+            return;
+        }
+
         const messageChannel = new MessageChannel();
         
         // Promise to handle the response with timeout
@@ -379,12 +394,11 @@ async function getServiceWorkerVersion() {
         );
         
         const version = await versionPromise;
+        lastKnownCacheVersion = version;
         console.log('[App] Received version from service worker:', version);
         updateVersionDisplay(version);
     } catch (error) {
         console.warn('[App] Failed to get version from service worker:', error);
-        // Fallback: show a default version or retry
-        setTimeout(() => getServiceWorkerVersion(), 1000);
     }
 }
 
@@ -392,6 +406,7 @@ function updateVersionDisplay(cacheVersion) {
     const versionElement = document.getElementById('version');
     if (versionElement && cacheVersion) {
         // Extract version from cache name (e.g., 'pdfomator-v1.0.2' -> 'v1.0.2')
+        lastKnownCacheVersion = cacheVersion;
         const version = cacheVersion.split('-').pop();
         const engineSuffix = filterEngineState.mode === 'gpu' ? 'g' : filterEngineState.mode === 'cpu' ? 'c' : '';
         versionElement.textContent = `${version}${engineSuffix}`;
@@ -402,12 +417,8 @@ function updateVersionDisplay(cacheVersion) {
 }
 
 function refreshVersionDisplay() {
-    const versionElement = document.getElementById('version');
-    const currentVersion = versionElement?.textContent || '';
-    const baseVersion = currentVersion.replace(/[gc]$/, '');
-
-    if (baseVersion) {
-        updateVersionDisplay(`pdfomator-${baseVersion}`);
+    if (lastKnownCacheVersion) {
+        updateVersionDisplay(lastKnownCacheVersion);
     }
 }
 
@@ -613,47 +624,31 @@ async function handlePDFSelection(e) {
 }
 
 async function handleImageSelection(e) {
-    const files = Array.from(e.target.files);
-    const targetCell = currentTargetCell; // Store target cell to prevent race conditions
-    
-    if (files.length === 0 || targetCell === null) return;
-    
-    const file = files[0]; // Single file selection
-    showLoading('Processing image...');
-    
-    try {
-        await processImageFileForCell(file, targetCell);
-    } catch (error) {
-        alert('Failed to process image. Please try again.');
-    } finally {
-        hideLoading();
-        elements.imageInput.value = '';
-        // Only clear currentTargetCell if it still matches our stored value
-        if (currentTargetCell === targetCell) {
-            currentTargetCell = null;
-        }
-    }
+    await handleImageLikeSelection(e.target, 'Processing image...', 'Failed to process image. Please try again.');
 }
 
 async function handleCameraSelection(e) {
-    const files = Array.from(e.target.files);
+    await handleImageLikeSelection(e.target, 'Processing photo...', 'Failed to process photo. Please try again.');
+}
+
+async function handleImageLikeSelection(inputElement, loadingMessage, errorMessage) {
+    const files = Array.from(inputElement.files || []);
     const targetCell = currentTargetCell;
 
     if (files.length === 0 || targetCell === null) {
-        elements.cameraInput.value = '';
+        inputElement.value = '';
         return;
     }
 
-    const file = files[0];
-    showLoading('Processing photo...');
+    showLoading(loadingMessage);
 
     try {
-        await processImageFileForCell(file, targetCell);
+        await processImageFileForCell(files[0], targetCell);
     } catch (error) {
-        alert('Failed to process photo. Please try again.');
+        alert(errorMessage);
     } finally {
         hideLoading();
-        elements.cameraInput.value = '';
+        inputElement.value = '';
         if (currentTargetCell === targetCell) {
             currentTargetCell = null;
         }
@@ -680,7 +675,7 @@ async function processPDFFileForCell(file, cellIndex) {
     const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
     
     if (pdf.numPages === 1) {
-        // Single page - process directly
+        // Imported PDF pages intentionally enter the shared raster image pipeline.
         const page = await pdf.getPage(1);
         const bitmap = await renderPDFPage(page, 2, 'bitmap');
         addToSpecificCell(bitmap, `${file.name} p1`, cellIndex);
@@ -928,6 +923,7 @@ function addToSpecificCell(content, title = '', cellIndex) {
         originalImage: imageData,
         title,
         filter: 'original',
+        imageOperationId: 0,
         fillMode: 'contain', // Default fill mode
         transform: {
             scale: 1,
@@ -994,15 +990,21 @@ async function applyCellFilter(cellIndex, filterKey) {
     if (!cellData?.image) return;
 
     const originalImage = cellData.originalImage || cellData.image;
+    const operationId = beginCellImageOperation(cellData);
     cellData.originalImage = originalImage;
     cellData.filter = filterKey;
 
     if (filterKey === 'original') {
+        if (!isCellImageOperationCurrent(cellData, operationId)) return;
         cellData.image = originalImage;
-    } else {
-        cellData.image = await applyWebGLFilterToImage(originalImage, filterKey);
+        updateSingleCell(cellIndex);
+        return;
     }
 
+    const filteredImage = await applyWebGLFilterToImage(originalImage, filterKey);
+    if (!isCellImageOperationCurrent(cellData, operationId)) return;
+
+    cellData.image = filteredImage;
     updateSingleCell(cellIndex);
 }
 
@@ -1017,16 +1019,21 @@ function rotateImage(cellIndex) {
     }
     
     const originalImage = cellData.originalImage || cellData.image;
+    const operationId = beginCellImageOperation(cellData);
 
     // Rotate the actual source image data, then rebuild the filtered version.
     rotateImageData(originalImage).then(async rotatedImageData => {
+        if (!isCellImageOperationCurrent(cellData, operationId)) return;
+
         cellData.originalImage = rotatedImageData;
         cellData.filter = cellData.filter || 'original';
 
         if (cellData.filter === 'original') {
-            cellData.image = { ...rotatedImageData };
+            cellData.image = rotatedImageData;
         } else {
-            cellData.image = await applyWebGLFilterToImage(rotatedImageData, cellData.filter);
+            const filteredImage = await applyWebGLFilterToImage(rotatedImageData, cellData.filter);
+            if (!isCellImageOperationCurrent(cellData, operationId)) return;
+            cellData.image = filteredImage;
         }
 
         // Reset transforms since we've physically rotated the image
@@ -1634,31 +1641,9 @@ function updateSingleCell(cellIndex) {
         renderSVGSheet();
         return;
     }
-    
-    // Calculate grid dimensions
-    const { width, height } = layoutState.sheet;
-    const { rows, cols } = layoutState.grid;
-    
-    const gridSpacing = {
-        sheetPadding: { top: 10, right: 10, bottom: 10, left: 10 },
-        columnGap: 5,
-        rowGap: 5,
-        cellPadding: 2
-    };
-    
-    const availableWidth = width - gridSpacing.sheetPadding.left - gridSpacing.sheetPadding.right;
-    const availableHeight = height - gridSpacing.sheetPadding.top - gridSpacing.sheetPadding.bottom;
-    const totalGapWidth = gridSpacing.columnGap * (cols - 1);
-    const totalGapHeight = gridSpacing.rowGap * (rows - 1);
-    
-    const cellWidth = (availableWidth - totalGapWidth) / cols;
-    const cellHeight = (availableHeight - totalGapHeight) / rows;
-    
-    // Calculate this cell's position
-    const row = Math.floor(cellIndex / cols);
-    const col = cellIndex % cols;
-    const cellX = gridSpacing.sheetPadding.left + col * (cellWidth + gridSpacing.columnGap);
-    const cellY = gridSpacing.sheetPadding.top + row * (cellHeight + gridSpacing.rowGap);
+
+    const { gridSpacing } = getGridMetrics();
+    const { x: cellX, y: cellY, width: cellWidth, height: cellHeight } = getCellCoordinates(cellIndex);
     
     // Find and remove existing cell elements
     const existingContentCell = contentLayer.querySelector(`[data-cell-index="${cellIndex}"]`);
@@ -1679,6 +1664,9 @@ function updateSingleCell(cellIndex) {
     
     // Render the updated cell
     renderSVGCell(cellContentGroup, cellUIGroup, cellIndex, cellX, cellY, cellWidth, cellHeight, gridSpacing.cellPadding);
+
+    // Match the behavior of the full SVG render.
+    cellUIGroup.addEventListener('click', () => handleCellAdd(cellIndex));
     
     // Add back to DOM
     contentLayer.appendChild(cellContentGroup);
@@ -2015,8 +2003,7 @@ function renderSVGCell(cellContentGroup, cellUIGroup, cellIndex, cellX, cellY, c
 
 // SVG-based sheet rendering function
 function renderSVGSheet() {
-    const { width, height } = layoutState.sheet;
-    const { rows, cols } = layoutState.grid;
+    const { width, height, totalCells, gridSpacing } = getGridMetrics();
     
     // Clear the sheet container
     elements.sheet.innerHTML = '';
@@ -2049,26 +2036,9 @@ function renderSVGSheet() {
     sheetBg.setAttribute('stroke-width', '0.5');
     contentLayer.appendChild(sheetBg);
     
-    // Calculate grid spacing in mm (simplified - no CSS dependencies)
-    const gridSpacing = CONFIG.gridSpacing;
-    
-    // Calculate available space and cell dimensions
-    const availableWidth = width - gridSpacing.sheetPadding.left - gridSpacing.sheetPadding.right;
-    const availableHeight = height - gridSpacing.sheetPadding.top - gridSpacing.sheetPadding.bottom;
-    const totalGapWidth = gridSpacing.columnGap * (cols - 1);
-    const totalGapHeight = gridSpacing.rowGap * (rows - 1);
-    const cellWidth = (availableWidth - totalGapWidth) / cols;
-    const cellHeight = (availableHeight - totalGapHeight) / rows;
-    
     // Render each cell
-    const totalCells = rows * cols;
     for (let i = 0; i < totalCells; i++) {
-        const row = Math.floor(i / cols);
-        const col = i % cols;
-        
-        // Calculate cell position
-        const cellX = gridSpacing.sheetPadding.left + col * (cellWidth + gridSpacing.columnGap);
-        const cellY = gridSpacing.sheetPadding.top + row * (cellHeight + gridSpacing.rowGap);
+        const { x: cellX, y: cellY, width: cellWidth, height: cellHeight } = getCellCoordinates(i);
         
         // Create cell content group (for export)
         const cellContentGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -2508,6 +2478,31 @@ function hideLoading() {
     overlayManager.hide(elements.loading);
 }
 
+function showStatusToast(message, duration = 2000) {
+    if (statusToastTimeoutId) {
+        clearTimeout(statusToastTimeoutId);
+        statusToastTimeoutId = null;
+    }
+
+    if (activeStatusToast) {
+        activeStatusToast.remove();
+    }
+
+    const toast = document.createElement('div');
+    toast.className = 'status-toast';
+    toast.innerHTML = `<div class="status-toast-content">${message}</div>`;
+    document.body.appendChild(toast);
+    activeStatusToast = toast;
+
+    statusToastTimeoutId = setTimeout(() => {
+        if (activeStatusToast === toast) {
+            toast.remove();
+            activeStatusToast = null;
+        }
+        statusToastTimeoutId = null;
+    }, duration);
+}
+
 // Export functionality
 async function handleQualityExport(quality) {
     hideExportOverlay();
@@ -2517,9 +2512,7 @@ async function handleQualityExport(quality) {
         const pdf = await assemblePDF(quality);
         downloadPDF(pdf, quality);
         hideLoading();
-        // Show success feedback briefly
-        showLoading('Export complete!');
-        setTimeout(hideLoading, 2000);
+        showStatusToast('Export complete!');
     } catch (error) {
         hideLoading();
         console.error('Export failed:', error);
@@ -2529,13 +2522,15 @@ async function handleQualityExport(quality) {
 
 async function assemblePDF(quality) {
     const { width, height, orientation } = layoutState.sheet;
+    const { scale, jpegQuality } = EXPORT_QUALITY[quality];
     const pdf = new jsPDF({ 
         orientation: orientation === 'landscape' ? 'l' : 'p', 
         unit: 'mm', 
         format: [width, height] 
     });
     
-    showLoading('Rasterizing cells...');
+    showLoading('Rasterizing sheet...');
+    const renderedSheet = await renderSheetToFullCanvas(scale);
     
     // Process each cell that has content
     for (let i = 0; i < layoutState.cells.length; i++) {
@@ -2545,7 +2540,7 @@ async function assemblePDF(quality) {
                 continue;
             }
 
-            const cellImageData = await rasterizeCellToCanvas(i, quality, imageBounds);
+            const cellImageData = extractCellImageFromRenderedSheet(renderedSheet, imageBounds, scale, jpegQuality);
             if (!cellImageData) {
                 continue;
             }
@@ -2565,23 +2560,7 @@ async function assemblePDF(quality) {
     return pdf;
 }
 
-async function rasterizeCellToCanvas(cellIndex, quality, imageBounds = null) {
-    const { scale, jpegQuality } = EXPORT_QUALITY[quality];
-    
-    // Get actual image bounds (excluding white space for contain mode)
-    const resolvedBounds = imageBounds || getActualImageBounds(cellIndex);
-    if (!resolvedBounds) {
-        return null;
-    }
-    
-    // Calculate target dimensions
-    const targetWidth = Math.round(resolvedBounds.width * scale);
-    const targetHeight = Math.round(resolvedBounds.height * scale);
-
-    if (!targetWidth || !targetHeight) {
-        return null;
-    }
-    
+async function renderSheetToFullCanvas(scale) {
     // Get the main SVG element
     const svg = elements.sheet.querySelector('svg');
     if (!svg) {
@@ -2596,9 +2575,7 @@ async function rasterizeCellToCanvas(cellIndex, quality, imageBounds = null) {
     }
     
     try {
-        // Use the actual image bounds for cutting
-        return await renderSVGToCanvas(svg, resolvedBounds, scale, jpegQuality);
-        
+        return await renderSVGToFullCanvas(svg, scale);
     } finally {
         // Restore UI layer visibility
         if (uiLayer) {
@@ -2607,112 +2584,91 @@ async function rasterizeCellToCanvas(cellIndex, quality, imageBounds = null) {
     }
 }
 
-async function renderSVGToCanvas(svg, cellCoords, scale, jpegQuality) {
-    // Create a temporary image element to render the SVG
-    const img = new Image();
-    
-    // Create a promise to handle the image loading
-    return new Promise((resolve, reject) => {
-        img.onload = () => {
-            try {
-                // Create canvas at full sheet size scaled
-                const fullCanvas = document.createElement('canvas');
-                const fullWidth = Math.round(layoutState.sheet.width * scale);
-                const fullHeight = Math.round(layoutState.sheet.height * scale);
-                
-                fullCanvas.width = fullWidth;
-                fullCanvas.height = fullHeight;
-                
-                const fullCtx = fullCanvas.getContext('2d');
-                
-                // Draw the SVG to the full canvas
-                fullCtx.drawImage(img, 0, 0, fullWidth, fullHeight);
-                
-                // Create cell-sized canvas
-                const cellCanvas = document.createElement('canvas');
-                const targetWidth = Math.round(cellCoords.width * scale);
-                const targetHeight = Math.round(cellCoords.height * scale);
-                
-                cellCanvas.width = targetWidth;
-                cellCanvas.height = targetHeight;
-                
-                const cellCtx = cellCanvas.getContext('2d');
-                
-                // Extract just the cell portion
-                const sourceX = Math.round(cellCoords.x * scale);
-                const sourceY = Math.round(cellCoords.y * scale);
-                
-                cellCtx.drawImage(
-                    fullCanvas,
-                    sourceX, sourceY, targetWidth, targetHeight,  // source
-                    0, 0, targetWidth, targetHeight               // destination
-                );
-                
-                // Convert to JPEG
-                const dataURL = cellCanvas.toDataURL('image/jpeg', jpegQuality);
-                resolve(dataURL);
-                
-            } catch (error) {
-                reject(new Error(`Failed to render cell to canvas: ${error.message}`));
-            }
-        };
-        
-        img.onerror = () => {
-            reject(new Error('Failed to load SVG as image'));
-        };
-        
-        // Convert SVG to data URL
-        try {
-            const serializer = new XMLSerializer();
-            const svgString = serializer.serializeToString(svg);
-            
-            // Create a clean SVG string with proper XML declaration
-            const cleanSvgString = svgString.includes('<?xml') 
-                ? svgString 
-                : `<?xml version="1.0" encoding="UTF-8"?>${svgString}`;
-            
-            // Encode as data URL
-            const svgDataURL = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(cleanSvgString)}`;
-            
-            // Set the source to trigger loading
-            img.src = svgDataURL;
-            
-        } catch (error) {
-            reject(new Error(`Failed to serialize SVG: ${error.message}`));
-        }
-    });
+async function renderSVGToFullCanvas(svg, scale) {
+    const img = await loadImageFromSrc(serializeSVGToDataUrl(svg));
+    const fullCanvas = document.createElement('canvas');
+    const fullWidth = Math.round(layoutState.sheet.width * scale);
+    const fullHeight = Math.round(layoutState.sheet.height * scale);
+    const fullCtx = fullCanvas.getContext('2d');
+
+    if (!fullCtx || !fullWidth || !fullHeight) {
+        throw new Error('Failed to prepare full-sheet canvas');
+    }
+
+    fullCanvas.width = fullWidth;
+    fullCanvas.height = fullHeight;
+    fullCtx.drawImage(img, 0, 0, fullWidth, fullHeight);
+
+    return fullCanvas;
+}
+
+function extractCellImageFromRenderedSheet(fullCanvas, cellCoords, scale, jpegQuality) {
+    const targetWidth = Math.round(cellCoords.width * scale);
+    const targetHeight = Math.round(cellCoords.height * scale);
+
+    if (!targetWidth || !targetHeight) {
+        return null;
+    }
+
+    const cellCanvas = document.createElement('canvas');
+    cellCanvas.width = targetWidth;
+    cellCanvas.height = targetHeight;
+
+    const cellCtx = cellCanvas.getContext('2d');
+    if (!cellCtx) {
+        throw new Error('Failed to prepare cell canvas');
+    }
+
+    const sourceX = Math.round(cellCoords.x * scale);
+    const sourceY = Math.round(cellCoords.y * scale);
+    cellCtx.drawImage(
+        fullCanvas,
+        sourceX, sourceY, targetWidth, targetHeight,
+        0, 0, targetWidth, targetHeight
+    );
+
+    return cellCanvas.toDataURL('image/jpeg', jpegQuality);
+}
+
+function serializeSVGToDataUrl(svg) {
+    const serializer = new XMLSerializer();
+    const svgString = serializer.serializeToString(svg);
+    const cleanSvgString = svgString.includes('<?xml')
+        ? svgString
+        : `<?xml version="1.0" encoding="UTF-8"?>${svgString}`;
+
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(cleanSvgString)}`;
+}
+
+function getGridMetrics() {
+    const { cols, rows } = layoutState.grid;
+    const { width, height } = layoutState.sheet;
+    const gridSpacing = CONFIG.gridSpacing;
+    const availableWidth = width - gridSpacing.sheetPadding.left - gridSpacing.sheetPadding.right;
+    const availableHeight = height - gridSpacing.sheetPadding.top - gridSpacing.sheetPadding.bottom;
+    const totalGapWidth = gridSpacing.columnGap * (cols - 1);
+    const totalGapHeight = gridSpacing.rowGap * (rows - 1);
+
+    return {
+        width,
+        height,
+        cols,
+        rows,
+        totalCells: rows * cols,
+        gridSpacing,
+        cellWidth: (availableWidth - totalGapWidth) / cols,
+        cellHeight: (availableHeight - totalGapHeight) / rows
+    };
 }
 
 function getCellCoordinates(cellIndex) {
-    const { cols, rows } = layoutState.grid;
-    const { width: sheetWidth, height: sheetHeight } = layoutState.sheet;
-    
-    // Use the same grid spacing as SVG rendering
-    const gridSpacing = {
-        sheetPadding: { top: 10, right: 10, bottom: 10, left: 10 },
-        columnGap: 5,
-        rowGap: 5,
-        cellPadding: 2
-    };
-    
+    const { cols, gridSpacing, cellWidth, cellHeight } = getGridMetrics();
     const col = cellIndex % cols;
     const row = Math.floor(cellIndex / cols);
-    
-    // Calculate available space and cell dimensions (matching SVG logic)
-    const availableWidth = sheetWidth - gridSpacing.sheetPadding.left - gridSpacing.sheetPadding.right;
-    const availableHeight = sheetHeight - gridSpacing.sheetPadding.top - gridSpacing.sheetPadding.bottom;
-    const totalGapWidth = gridSpacing.columnGap * (cols - 1);
-    const totalGapHeight = gridSpacing.rowGap * (rows - 1);
-    const cellWidth = (availableWidth - totalGapWidth) / cols;
-    const cellHeight = (availableHeight - totalGapHeight) / rows;
-    
-    // Calculate cell position (matching SVG logic)
-    const cellX = gridSpacing.sheetPadding.left + col * (cellWidth + gridSpacing.columnGap);
-    const cellY = gridSpacing.sheetPadding.top + row * (cellHeight + gridSpacing.rowGap);
-    
+
     return {
-        x: cellX,
-        y: cellY,
+        x: gridSpacing.sheetPadding.left + col * (cellWidth + gridSpacing.columnGap),
+        y: gridSpacing.sheetPadding.top + row * (cellHeight + gridSpacing.rowGap),
         width: cellWidth,
         height: cellHeight
     };
@@ -2720,8 +2676,8 @@ function getCellCoordinates(cellIndex) {
 
 function getCellContentCoordinates(cellIndex) {
     const cellCoords = getCellCoordinates(cellIndex);
-    const cellPadding = 2; // Match the value from gridSpacing.cellPadding
-    
+    const { cellPadding } = CONFIG.gridSpacing;
+
     return {
         x: cellCoords.x + cellPadding,
         y: cellCoords.y + cellPadding,

@@ -579,6 +579,25 @@ body {
     animation: slideDown 0.3s ease-out;
 }
 
+.status-toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    animation: slideUp 0.2s ease-out;
+}
+
+.status-toast-content {
+    background: rgba(17, 24, 39, 0.92);
+    color: white;
+    padding: 10px 16px;
+    border-radius: 999px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
 .update-content {
     background: var(--custom-red);
     color: white;
@@ -631,6 +650,17 @@ body {
 @keyframes slideDown {
     from {
         transform: translateX(-50%) translateY(-100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(-50%) translateY(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateX(-50%) translateY(8px);
         opacity: 0;
     }
     to {
