@@ -38,7 +38,11 @@ function getCurrentPageState() {
 }
 
 function pageHasContent(pageState) {
-    return pageState.cells.some(cell => !!cell);
+    return pageState.cells.some(isCellCustomized);
+}
+
+function pageHasExportableContent(pageState) {
+    return pageState.cells.some(isCellImageContent);
 }
 
 function syncPageDimensions(pageState) {
@@ -261,6 +265,9 @@ const CONFIG = {
         buttonIconSize: 8,          // Size of button icons (mm)
         buttonFontSize: 16,         // Font size for button text
         cellStrokeWidth: 0.5,       // Stroke width for cell borders (mm)
+        cropBorderStrokeWidth: 0.7, // Stroke width for editable crop borders (mm)
+        cropBorderHitWidth: 6,      // Invisible hit area around crop borders (mm)
+        cropCornerHitSize: 10,      // Invisible hit area around crop corners (mm)
         addButtonRadius: 12,        // Radius for add button in empty cells (mm)
         addButtonFontSize: 16       // Font size for add button
     },
@@ -276,12 +283,21 @@ const CONFIG = {
         pinchDampingNormal: 0.5,    // Normal pinch damping
         pinchDampingZoomedIn: 0.2,  // Pinch damping when zoomed in
         pinchTransitionScale: 1.0,  // Scale where damping transitions (low)
-        pinchTransitionScaleHigh: 3.0 // Scale where damping transitions (high)
+        pinchTransitionScaleHigh: 3.0, // Scale where damping transitions (high)
+        minCropSize: 8              // Minimum crop rectangle size (mm)
     },
     
     // Cache management
     cache: {
         updateCheckInterval: 60000  // Check for updates every 60 seconds
+    },
+
+    // PDF page selector virtualization
+    pdfSelector: {
+        thumbnailScale: 0.5,        // Small preview scale for page thumbnails
+        itemHeight: 188,            // Fixed virtual row item height in px
+        bufferRows: 2,              // Extra rows kept mounted above/below viewport
+        maxCachedThumbnails: 48     // Rendered thumbnail canvases retained across scrolls
     },
 
     // Image normalization
@@ -429,6 +445,231 @@ const cameraState = {
     devices: [],
     selectedDeviceId: ''
 };
+const cropDragState = {
+    suppressNextClick: false,
+    suppressClickTimeoutId: null
+};
+
+function isCellImageContent(cellData) {
+    return !!cellData?.image;
+}
+
+function isCellCustomized(cellData) {
+    return isCellImageContent(cellData) || hasCustomCrop(cellData);
+}
+
+function hasCustomCrop(cellData) {
+    if (!cellData?.crop) return false;
+
+    const crop = normalizeCellCrop(cellData.crop);
+    return crop.top > 0 || crop.right > 0 || crop.bottom > 0 || crop.left > 0;
+}
+
+function normalizeCellCrop(crop = {}) {
+    return {
+        top: Math.max(0, Number(crop.top) || 0),
+        right: Math.max(0, Number(crop.right) || 0),
+        bottom: Math.max(0, Number(crop.bottom) || 0),
+        left: Math.max(0, Number(crop.left) || 0)
+    };
+}
+
+function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
+
+function clampCellCrop(crop, contentWidth, contentHeight) {
+    const normalized = normalizeCellCrop(crop);
+    const minWidth = Math.min(CONFIG.interaction.minCropSize, Math.max(1, contentWidth));
+    const minHeight = Math.min(CONFIG.interaction.minCropSize, Math.max(1, contentHeight));
+
+    const maxHorizontalInset = Math.max(0, contentWidth - minWidth);
+    const maxVerticalInset = Math.max(0, contentHeight - minHeight);
+    const left = clamp(normalized.left, 0, maxHorizontalInset);
+    const right = clamp(normalized.right, 0, Math.max(0, contentWidth - minWidth - left));
+    const top = clamp(normalized.top, 0, maxVerticalInset);
+    const bottom = clamp(normalized.bottom, 0, Math.max(0, contentHeight - minHeight - top));
+
+    return { top, right, bottom, left };
+}
+
+function getContentRectFromCellBounds(cellX, cellY, cellWidth, cellHeight, cellPadding) {
+    return {
+        x: cellX + cellPadding,
+        y: cellY + cellPadding,
+        width: cellWidth - (cellPadding * 2),
+        height: cellHeight - (cellPadding * 2)
+    };
+}
+
+function getCroppedContentRect(cellData, contentRect) {
+    const crop = clampCellCrop(cellData?.crop, contentRect.width, contentRect.height);
+
+    return {
+        x: contentRect.x + crop.left,
+        y: contentRect.y + crop.top,
+        width: contentRect.width - crop.left - crop.right,
+        height: contentRect.height - crop.top - crop.bottom,
+        crop
+    };
+}
+
+function setCellCrop(cellIndex, nextCrop, contentRect) {
+    const crop = clampCellCrop(nextCrop, contentRect.width, contentRect.height);
+    const hasCrop = crop.top > 0 || crop.right > 0 || crop.bottom > 0 || crop.left > 0;
+    let cellData = layoutState.cells[cellIndex];
+
+    if (!cellData) {
+        if (!hasCrop) return;
+        cellData = {};
+        layoutState.cells[cellIndex] = cellData;
+    }
+
+    if (hasCrop) {
+        cellData.crop = crop;
+    } else {
+        delete cellData.crop;
+        if (!isCellImageContent(cellData)) {
+            layoutState.cells[cellIndex] = null;
+        }
+    }
+}
+
+function resetCellCrops() {
+    for (let i = 0; i < layoutState.cells.length; i++) {
+        const cellData = layoutState.cells[i];
+
+        if (!cellData?.crop) continue;
+
+        delete cellData.crop;
+        if (!isCellImageContent(cellData)) {
+            layoutState.cells[i] = null;
+        }
+    }
+}
+
+function intersectRects(a, b) {
+    const left = Math.max(a.x, b.x);
+    const top = Math.max(a.y, b.y);
+    const right = Math.min(a.x + a.width, b.x + b.width);
+    const bottom = Math.min(a.y + a.height, b.y + b.height);
+
+    if (left >= right || top >= bottom) {
+        return null;
+    }
+
+    return {
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top
+    };
+}
+
+function getAspectFitRect(aspectRatio, bounds) {
+    const boundsAspect = bounds.width / bounds.height;
+    let width;
+    let height;
+
+    if (aspectRatio > boundsAspect) {
+        width = bounds.width;
+        height = width / aspectRatio;
+    } else {
+        height = bounds.height;
+        width = height * aspectRatio;
+    }
+
+    return {
+        x: bounds.x + (bounds.width - width) / 2,
+        y: bounds.y + (bounds.height - height) / 2,
+        width,
+        height
+    };
+}
+
+function getAspectFillRect(aspectRatio, bounds) {
+    const boundsAspect = bounds.width / bounds.height;
+    let width;
+    let height;
+
+    if (aspectRatio > boundsAspect) {
+        height = bounds.height;
+        width = height * aspectRatio;
+    } else {
+        width = bounds.width;
+        height = width / aspectRatio;
+    }
+
+    return {
+        x: bounds.x + (bounds.width - width) / 2,
+        y: bounds.y + (bounds.height - height) / 2,
+        width,
+        height
+    };
+}
+
+function getCellImageGeometry(cellData, contentRect) {
+    if (!cellData?.image || contentRect.width <= 0 || contentRect.height <= 0) {
+        return null;
+    }
+
+    const { image } = cellData;
+    const imageAspect = image.width / image.height;
+    const contentBounds = {
+        x: contentRect.x,
+        y: contentRect.y,
+        width: contentRect.width,
+        height: contentRect.height
+    };
+
+    if (!Number.isFinite(imageAspect) || imageAspect <= 0) {
+        return {
+            renderRect: contentBounds,
+            visibleRect: contentBounds,
+            interactionRect: contentBounds,
+            preserveAspectRatio: 'xMidYMid meet'
+        };
+    }
+
+    if (cellData.fillMode === 'fill') {
+        return {
+            renderRect: contentBounds,
+            visibleRect: contentBounds,
+            interactionRect: contentBounds,
+            preserveAspectRatio: 'none'
+        };
+    }
+
+    if (cellData.fillMode === 'cover') {
+        const baseRect = getAspectFillRect(imageAspect, contentBounds);
+        const transform = cellData.transform || { scale: 1, translateX: 0, translateY: 0 };
+        const scale = Number.isFinite(Number(transform.scale)) ? Number(transform.scale) : 1;
+        const translateX = Number(transform.translateX) || 0;
+        const translateY = Number(transform.translateY) || 0;
+        const width = baseRect.width * scale;
+        const height = baseRect.height * scale;
+        const renderRect = {
+            x: contentBounds.x + contentBounds.width / 2 - width / 2 + translateX,
+            y: contentBounds.y + contentBounds.height / 2 - height / 2 + translateY,
+            width,
+            height
+        };
+
+        return {
+            renderRect,
+            visibleRect: renderRect,
+            interactionRect: contentBounds,
+            preserveAspectRatio: 'none'
+        };
+    }
+
+    return {
+        renderRect: contentBounds,
+        visibleRect: getAspectFitRect(imageAspect, contentBounds),
+        interactionRect: contentBounds,
+        preserveAspectRatio: 'xMidYMid meet'
+    };
+}
 
 function beginCellImageOperation(cellData) {
     cellData.imageOperationId = (cellData.imageOperationId || 0) + 1;
@@ -864,7 +1105,7 @@ function handleGridPicker() {
 }
 
 async function handleExport() {
-    if (!appState.pages.some(pageHasContent)) {
+    if (!appState.pages.some(pageHasExportableContent)) {
         alert('Please add some content to export!');
         return;
     }
@@ -1066,7 +1307,6 @@ async function renderPDFPage(page, scale = 2, outputFormat = 'canvas') {
 
 async function showPDFPageSelector(pdf, fileName, cellIndex) {
     const pageGrid = elements.pageGrid;
-    pageGrid.innerHTML = '';
     cancelPDFPageSelectorGeneration();
     
     // Hide the initial loading overlay since we're showing the page selector
@@ -1078,100 +1318,336 @@ async function showPDFPageSelector(pdf, fileName, cellIndex) {
     pageSelectorSession = {
         canceled: false,
         pageIndex: appState.currentPageIndex,
-        cellIndex
+        cellIndex,
+        pdf,
+        fileName,
+        pageGrid,
+        spacer: null,
+        metrics: null,
+        scrollHandler: null,
+        frameRequestId: null,
+        resizeObserver: null,
+        renderedSlots: new Map(),
+        thumbnailCache: new Map(),
+        thumbnailCacheOrder: [],
+        pendingRenders: new Map()
     };
 
-    // Start the thumbnail generation process
-    generateThumbnailsSequentially(pdf, fileName, pageGrid, pageSelectorSession);
+    setupVirtualPDFPageSelector(pageSelectorSession);
 }
 
-async function generateThumbnailsSequentially(pdf, fileName, pageGrid, session) {
-    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-        // Check if generation was canceled before processing each page
-        if (session.canceled || pageSelectorSession !== session) {
-            return; // Exit the loop immediately
-        }
-        
-        try {
-            const page = await pdf.getPage(pageNum);
-            const thumbnail = await renderPDFPage(page, 0.5, 'canvas'); // Smaller scale for thumbnails
-            
-            // Check again after async operations in case user selected during rendering
-            if (session.canceled || pageSelectorSession !== session) {
-                return;
-            }
-            
-            const pageDiv = document.createElement('div');
-            pageDiv.className = 'page-thumbnail';
-            pageDiv.dataset.pageNum = pageNum;
-            
-            const label = document.createElement('div');
-            label.className = 'page-label';
-            label.textContent = `Page ${pageNum}`;
-            
-            pageDiv.appendChild(thumbnail);
-            pageDiv.appendChild(label);
-            
-            pageDiv.addEventListener('click', () => {
-                // Cancel any ongoing thumbnail generation
-                session.canceled = true;
-                pageSelectorSession = null;
-                
-                hidePageSelector();
-                showLoading('Processing selected page...');
-                
-                // Process the selected page immediately
-                processSelectedPage(pdf, pageNum, fileName, session.pageIndex, session.cellIndex);
-            });
-            
-            pageGrid.appendChild(pageDiv);
-            
-            // Check if this is the last page
-            if (pageGrid.children.length === pdf.numPages) {
-                return;
-            }
-            
-        } catch (error) {
-            // Check if canceled before creating error placeholder
-            if (session.canceled || pageSelectorSession !== session) {
-                return;
-            }
-            
-            // Create error placeholder instead of thumbnail
-            const pageDiv = document.createElement('div');
-            pageDiv.className = 'page-thumbnail';
-            pageDiv.dataset.pageNum = pageNum;
-            pageDiv.style.backgroundColor = '#f8f9fa';
-            pageDiv.style.border = '1px solid #dee2e6';
-            pageDiv.style.display = 'flex';
-            pageDiv.style.alignItems = 'center';
-            pageDiv.style.justifyContent = 'center';
-            pageDiv.style.minHeight = '100px';
-            
-            const errorLabel = document.createElement('div');
-            errorLabel.className = 'page-label';
-            errorLabel.textContent = `Page ${pageNum} (Error)`;
-            errorLabel.style.color = '#dc3545';
-            
-            pageDiv.appendChild(errorLabel);
-            pageGrid.appendChild(pageDiv);
-            
-            // Check if this was the last page (including errors)
-            if (pageGrid.children.length === pdf.numPages) {
-                return;
-            }
-        }
-        
-        // Yield control back to the browser between pages (for responsiveness)
-        await new Promise(resolve => setTimeout(resolve, 0));
+function setupVirtualPDFPageSelector(session) {
+    const { pageGrid } = session;
+
+    pageGrid.innerHTML = '';
+    pageGrid.scrollTop = 0;
+    pageGrid.classList.add('virtualized');
+
+    const spacer = document.createElement('div');
+    spacer.className = 'page-virtual-spacer';
+    pageGrid.appendChild(spacer);
+    session.spacer = spacer;
+
+    session.scrollHandler = () => {
+        scheduleVirtualPDFPageSelectorUpdate(session);
+    };
+    pageGrid.addEventListener('scroll', session.scrollHandler, { passive: true });
+
+    if ('ResizeObserver' in window) {
+        session.resizeObserver = new ResizeObserver(() => {
+            scheduleVirtualPDFPageSelectorUpdate(session);
+        });
+        session.resizeObserver.observe(pageGrid);
     }
+
+    updateVirtualPDFPageSelector(session);
+    scheduleVirtualPDFPageSelectorUpdate(session);
+}
+
+function scheduleVirtualPDFPageSelectorUpdate(session) {
+    if (session.canceled || pageSelectorSession !== session || session.frameRequestId !== null) {
+        return;
+    }
+
+    session.frameRequestId = requestAnimationFrame(() => {
+        session.frameRequestId = null;
+        updateVirtualPDFPageSelector(session);
+    });
+}
+
+function getPDFPageSelectorMetrics(pageGrid, totalPages) {
+    const styles = window.getComputedStyle(pageGrid);
+    const gap = parseFloat(styles.rowGap || styles.gap || '16') || 16;
+    const columns = window.matchMedia('(max-width: 768px)').matches ? 1 : 2;
+    const itemWidth = Math.max(0, (pageGrid.clientWidth - gap * (columns - 1)) / columns);
+    const itemHeight = CONFIG.pdfSelector.itemHeight;
+    const rowHeight = itemHeight + gap;
+    const rowCount = Math.ceil(totalPages / columns);
+
+    return {
+        columns,
+        gap,
+        itemWidth,
+        itemHeight,
+        rowHeight,
+        rowCount,
+        spacerHeight: rowCount * itemHeight + Math.max(0, rowCount - 1) * gap
+    };
+}
+
+function updateVirtualPDFPageSelector(session) {
+    if (session.canceled || pageSelectorSession !== session) {
+        return;
+    }
+
+    const { pageGrid, pdf, spacer } = session;
+    const metrics = getPDFPageSelectorMetrics(pageGrid, pdf.numPages);
+    session.metrics = metrics;
+
+    spacer.style.height = `${metrics.spacerHeight}px`;
+
+    if (metrics.itemWidth <= 0 || metrics.rowCount === 0) {
+        return;
+    }
+
+    const range = getVirtualPDFPageRange(session);
+
+    for (const [pageNum, slot] of session.renderedSlots) {
+        if (pageNum < range.start || pageNum > range.end) {
+            slot.remove();
+            session.renderedSlots.delete(pageNum);
+        }
+    }
+
+    for (let pageNum = range.start; pageNum <= range.end; pageNum++) {
+        renderVirtualPDFPageSlot(session, pageNum);
+    }
+
+    prunePDFThumbnailCache(session);
+}
+
+function getVirtualPDFPageRange(session) {
+    const { pageGrid, pdf, metrics } = session;
+    const viewportHeight = pageGrid.clientHeight || metrics.itemHeight;
+    const bufferRows = CONFIG.pdfSelector.bufferRows;
+    const firstRow = Math.max(0, Math.floor(pageGrid.scrollTop / metrics.rowHeight) - bufferRows);
+    const lastRow = Math.min(
+        metrics.rowCount - 1,
+        Math.ceil((pageGrid.scrollTop + viewportHeight) / metrics.rowHeight) + bufferRows
+    );
+
+    return {
+        start: firstRow * metrics.columns + 1,
+        end: Math.min(pdf.numPages, (lastRow + 1) * metrics.columns)
+    };
+}
+
+function renderVirtualPDFPageSlot(session, pageNum) {
+    let slot = session.renderedSlots.get(pageNum);
+
+    if (!slot) {
+        slot = createVirtualPDFPageSlot(session, pageNum);
+        session.renderedSlots.set(pageNum, slot);
+        session.spacer.appendChild(slot);
+        renderPDFPageSlotThumbnail(session, pageNum, slot);
+    }
+
+    positionVirtualPDFPageSlot(session, pageNum, slot);
+}
+
+function createVirtualPDFPageSlot(session, pageNum) {
+    const slot = document.createElement('div');
+    slot.className = 'page-thumbnail page-thumbnail-virtual';
+    slot.dataset.pageNum = pageNum;
+    slot.tabIndex = 0;
+    slot.setAttribute('role', 'button');
+    slot.setAttribute('aria-label', `Select PDF page ${pageNum}`);
+
+    slot.addEventListener('click', () => {
+        selectPDFPageFromSession(session, pageNum);
+    });
+
+    slot.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            selectPDFPageFromSession(session, pageNum);
+        }
+    });
+
+    renderPDFPageSlotPlaceholder(slot, pageNum, 'Loading...');
+    return slot;
+}
+
+function positionVirtualPDFPageSlot(session, pageNum, slot) {
+    const { columns, gap, itemWidth, itemHeight, rowHeight } = session.metrics;
+    const pageIndex = pageNum - 1;
+    const row = Math.floor(pageIndex / columns);
+    const col = pageIndex % columns;
+
+    slot.style.width = `${itemWidth}px`;
+    slot.style.height = `${itemHeight}px`;
+    slot.style.transform = `translate(${col * (itemWidth + gap)}px, ${row * rowHeight}px)`;
+}
+
+function renderPDFPageSlotPlaceholder(slot, pageNum, message, isError = false) {
+    slot.innerHTML = '';
+    slot.classList.toggle('page-thumbnail-error', isError);
+
+    const placeholder = document.createElement('div');
+    placeholder.className = 'page-thumbnail-placeholder';
+    placeholder.textContent = message;
+
+    const label = document.createElement('div');
+    label.className = 'page-label';
+    label.textContent = isError ? `Page ${pageNum} (Error)` : `Page ${pageNum}`;
+
+    slot.appendChild(placeholder);
+    slot.appendChild(label);
+}
+
+function renderPDFPageSlotCanvas(slot, pageNum, canvas) {
+    slot.innerHTML = '';
+    slot.classList.remove('page-thumbnail-error');
+
+    const label = document.createElement('div');
+    label.className = 'page-label';
+    label.textContent = `Page ${pageNum}`;
+
+    slot.appendChild(canvas);
+    slot.appendChild(label);
+}
+
+async function renderPDFPageSlotThumbnail(session, pageNum, slot) {
+    const cachedThumbnail = session.thumbnailCache.get(pageNum);
+
+    if (cachedThumbnail) {
+        touchPDFThumbnailCacheEntry(session, pageNum);
+        if (cachedThumbnail.error) {
+            renderPDFPageSlotPlaceholder(slot, pageNum, 'Preview unavailable', true);
+        } else {
+            renderPDFPageSlotCanvas(slot, pageNum, cachedThumbnail.canvas);
+        }
+        return;
+    }
+
+    if (session.pendingRenders.has(pageNum)) {
+        return;
+    }
+
+    const renderPromise = (async () => {
+        try {
+            const page = await session.pdf.getPage(pageNum);
+            const canvas = await renderPDFPage(page, CONFIG.pdfSelector.thumbnailScale, 'canvas');
+
+            if (session.canceled || pageSelectorSession !== session) {
+                return;
+            }
+
+            cachePDFThumbnail(session, pageNum, { canvas });
+
+            const currentSlot = session.renderedSlots.get(pageNum);
+            if (currentSlot?.isConnected) {
+                renderPDFPageSlotCanvas(currentSlot, pageNum, canvas);
+            }
+        } catch (error) {
+            if (session.canceled || pageSelectorSession !== session) {
+                return;
+            }
+
+            cachePDFThumbnail(session, pageNum, { error: true });
+
+            const currentSlot = session.renderedSlots.get(pageNum);
+            if (currentSlot?.isConnected) {
+                renderPDFPageSlotPlaceholder(currentSlot, pageNum, 'Preview unavailable', true);
+            }
+        } finally {
+            session.pendingRenders.delete(pageNum);
+            prunePDFThumbnailCache(session);
+        }
+    })();
+
+    session.pendingRenders.set(pageNum, renderPromise);
+}
+
+function cachePDFThumbnail(session, pageNum, entry) {
+    session.thumbnailCache.set(pageNum, entry);
+    touchPDFThumbnailCacheEntry(session, pageNum);
+    prunePDFThumbnailCache(session);
+}
+
+function touchPDFThumbnailCacheEntry(session, pageNum) {
+    const existingIndex = session.thumbnailCacheOrder.indexOf(pageNum);
+    if (existingIndex !== -1) {
+        session.thumbnailCacheOrder.splice(existingIndex, 1);
+    }
+    session.thumbnailCacheOrder.push(pageNum);
+}
+
+function prunePDFThumbnailCache(session) {
+    const visiblePages = new Set(session.renderedSlots.keys());
+    let attempts = 0;
+
+    while (session.thumbnailCacheOrder.length > CONFIG.pdfSelector.maxCachedThumbnails && attempts < session.thumbnailCacheOrder.length) {
+        const pageNum = session.thumbnailCacheOrder[0];
+
+        if (visiblePages.has(pageNum)) {
+            session.thumbnailCacheOrder.push(session.thumbnailCacheOrder.shift());
+            attempts++;
+            continue;
+        }
+
+        session.thumbnailCache.delete(pageNum);
+        session.thumbnailCacheOrder.shift();
+        attempts = 0;
+    }
+}
+
+function selectPDFPageFromSession(session, pageNum) {
+    if (session.canceled || pageSelectorSession !== session) {
+        return;
+    }
+
+    const { pdf, fileName, pageIndex, cellIndex } = session;
+    cancelPDFPageSelectorGeneration();
+    overlayManager.hide(elements.pageSelector);
+    showLoading('Processing selected page...');
+    processSelectedPage(pdf, pageNum, fileName, pageIndex, cellIndex);
 }
 
 function cancelPDFPageSelectorGeneration() {
     if (pageSelectorSession) {
-        pageSelectorSession.canceled = true;
+        cleanupPDFPageSelectorSession(pageSelectorSession);
         pageSelectorSession = null;
     }
+}
+
+function cleanupPDFPageSelectorSession(session) {
+    session.canceled = true;
+
+    if (session.frameRequestId !== null) {
+        cancelAnimationFrame(session.frameRequestId);
+        session.frameRequestId = null;
+    }
+
+    if (session.pageGrid && session.scrollHandler) {
+        session.pageGrid.removeEventListener('scroll', session.scrollHandler);
+        session.scrollHandler = null;
+    }
+
+    if (session.resizeObserver) {
+        session.resizeObserver.disconnect();
+        session.resizeObserver = null;
+    }
+
+    if (session.pageGrid) {
+        session.pageGrid.classList.remove('virtualized');
+        session.pageGrid.innerHTML = '';
+    }
+
+    session.renderedSlots?.clear();
+    session.thumbnailCache?.clear();
+    session.thumbnailCacheOrder = [];
+    session.pendingRenders?.clear();
 }
 
 async function processSelectedPage(pdf, pageNum, fileName, pageIndex, cellIndex) {
@@ -1192,6 +1668,8 @@ async function processSelectedPage(pdf, pageNum, fileName, pageIndex, cellIndex)
 }
 
 function addToSpecificCell(content, title = '', cellIndex) {
+    const existingCell = layoutState.cells[cellIndex];
+    const existingCrop = normalizeCellCrop(existingCell?.crop);
     const imageData = {
         src: content.src,
         width: content.naturalWidth,
@@ -1199,7 +1677,7 @@ function addToSpecificCell(content, title = '', cellIndex) {
     };
 
     // Store image data in new format for SVG compatibility
-    layoutState.cells[cellIndex] = { 
+    const nextCellData = {
         image: imageData,
         originalImage: imageData,
         title,
@@ -1215,6 +1693,12 @@ function addToSpecificCell(content, title = '', cellIndex) {
             translateY: 0
         }
     };
+
+    if (hasCustomCrop({ crop: existingCrop })) {
+        nextCellData.crop = existingCrop;
+    }
+
+    layoutState.cells[cellIndex] = nextCellData;
     
     // Re-render entire SVG sheet
     renderSVGSheet();
@@ -1224,7 +1708,11 @@ function removeCellContent(cellIndex) {
     if (bitonalPopoverState.cellIndex === cellIndex) {
         hideBitonalPopover();
     }
-    layoutState.cells[cellIndex] = null;
+    const existingCell = layoutState.cells[cellIndex];
+    const existingCrop = normalizeCellCrop(existingCell?.crop);
+    layoutState.cells[cellIndex] = hasCustomCrop({ crop: existingCrop })
+        ? { crop: existingCrop }
+        : null;
     // Re-render entire SVG sheet
     renderSVGSheet();
 }
@@ -1969,7 +2457,7 @@ function updateSingleCell(cellIndex) {
     renderSVGCell(cellContentGroup, cellUIGroup, cellIndex, cellX, cellY, cellWidth, cellHeight, gridSpacing.cellPadding);
 
     // Match the behavior of the full SVG render.
-    cellUIGroup.addEventListener('click', () => handleCellAdd(cellIndex));
+    cellUIGroup.addEventListener('click', (event) => handleCellUIClick(event, cellIndex));
     
     // Add back to DOM
     contentLayer.appendChild(cellContentGroup);
@@ -1980,15 +2468,211 @@ function updateSheetSize() {
     renderCurrentPage();
 }
 
+function handleCellUIClick(event, cellIndex) {
+    if (cropDragState.suppressNextClick) {
+        event.stopPropagation();
+        cropDragState.suppressNextClick = false;
+        return;
+    }
+
+    handleCellAdd(cellIndex);
+}
+
+function suppressNextCellClick() {
+    cropDragState.suppressNextClick = true;
+
+    if (cropDragState.suppressClickTimeoutId) {
+        clearTimeout(cropDragState.suppressClickTimeoutId);
+    }
+
+    cropDragState.suppressClickTimeoutId = setTimeout(() => {
+        cropDragState.suppressNextClick = false;
+        cropDragState.suppressClickTimeoutId = null;
+    }, 150);
+}
+
+function getClientPointInSVG(svg, clientX, clientY) {
+    const matrix = svg.getScreenCTM();
+
+    if (matrix) {
+        const point = svg.createSVGPoint();
+        point.x = clientX;
+        point.y = clientY;
+        return point.matrixTransform(matrix.inverse());
+    }
+
+    const rect = svg.getBoundingClientRect();
+    return {
+        x: ((clientX - rect.left) / rect.width) * layoutState.sheet.width,
+        y: ((clientY - rect.top) / rect.height) * layoutState.sheet.height
+    };
+}
+
+function startCellCropDrag(event, cellIndex, edge, contentRect) {
+    event.preventDefault();
+    event.stopPropagation();
+    hideBitonalPopover();
+    resetPageSwipeTracking();
+    suppressNextCellClick();
+
+    const svg = elements.sheet.querySelector('svg');
+    if (!svg) return;
+
+    const startPoint = getClientPointInSVG(svg, event.clientX, event.clientY);
+    const startCrop = clampCellCrop(layoutState.cells[cellIndex]?.crop, contentRect.width, contentRect.height);
+
+    const handlePointerMove = (moveEvent) => {
+        moveEvent.preventDefault();
+
+        const currentPoint = getClientPointInSVG(svg, moveEvent.clientX, moveEvent.clientY);
+        const deltaX = currentPoint.x - startPoint.x;
+        const deltaY = currentPoint.y - startPoint.y;
+        const nextCrop = { ...startCrop };
+
+        if (edge === 'top') {
+            nextCrop.top = startCrop.top + deltaY;
+        } else if (edge === 'right') {
+            nextCrop.right = startCrop.right - deltaX;
+        } else if (edge === 'bottom') {
+            nextCrop.bottom = startCrop.bottom - deltaY;
+        } else if (edge === 'left') {
+            nextCrop.left = startCrop.left + deltaX;
+        } else if (edge === 'top-left') {
+            nextCrop.top = startCrop.top + deltaY;
+            nextCrop.left = startCrop.left + deltaX;
+        } else if (edge === 'top-right') {
+            nextCrop.top = startCrop.top + deltaY;
+            nextCrop.right = startCrop.right - deltaX;
+        } else if (edge === 'bottom-right') {
+            nextCrop.bottom = startCrop.bottom - deltaY;
+            nextCrop.right = startCrop.right - deltaX;
+        } else if (edge === 'bottom-left') {
+            nextCrop.bottom = startCrop.bottom - deltaY;
+            nextCrop.left = startCrop.left + deltaX;
+        }
+
+        setCellCrop(cellIndex, nextCrop, contentRect);
+        updateSingleCell(cellIndex);
+    };
+
+    const endDrag = () => {
+        document.removeEventListener('pointermove', handlePointerMove);
+        document.removeEventListener('pointerup', endDrag);
+        document.removeEventListener('pointercancel', endDrag);
+    };
+
+    document.addEventListener('pointermove', handlePointerMove);
+    document.addEventListener('pointerup', endDrag);
+    document.addEventListener('pointercancel', endDrag);
+}
+
+function appendCropBorderHitArea(cellUIGroup, cellIndex, edge, contentRect, cropRect) {
+    const hitWidth = CONFIG.ui.cropBorderHitWidth;
+    const halfHitWidth = hitWidth / 2;
+    const hitArea = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+
+    if (edge === 'top') {
+        hitArea.setAttribute('x', cropRect.x);
+        hitArea.setAttribute('y', cropRect.y - halfHitWidth);
+        hitArea.setAttribute('width', cropRect.width);
+        hitArea.setAttribute('height', hitWidth);
+        hitArea.style.cursor = 'ns-resize';
+    } else if (edge === 'right') {
+        hitArea.setAttribute('x', cropRect.x + cropRect.width - halfHitWidth);
+        hitArea.setAttribute('y', cropRect.y);
+        hitArea.setAttribute('width', hitWidth);
+        hitArea.setAttribute('height', cropRect.height);
+        hitArea.style.cursor = 'ew-resize';
+    } else if (edge === 'bottom') {
+        hitArea.setAttribute('x', cropRect.x);
+        hitArea.setAttribute('y', cropRect.y + cropRect.height - halfHitWidth);
+        hitArea.setAttribute('width', cropRect.width);
+        hitArea.setAttribute('height', hitWidth);
+        hitArea.style.cursor = 'ns-resize';
+    } else if (edge === 'left') {
+        hitArea.setAttribute('x', cropRect.x - halfHitWidth);
+        hitArea.setAttribute('y', cropRect.y);
+        hitArea.setAttribute('width', hitWidth);
+        hitArea.setAttribute('height', cropRect.height);
+        hitArea.style.cursor = 'ew-resize';
+    }
+
+    hitArea.setAttribute('fill', 'transparent');
+    hitArea.setAttribute('pointer-events', 'all');
+    hitArea.style.touchAction = 'none';
+    hitArea.addEventListener('pointerdown', (event) => startCellCropDrag(event, cellIndex, edge, contentRect));
+    hitArea.addEventListener('click', (event) => {
+        event.stopPropagation();
+    });
+    cellUIGroup.appendChild(hitArea);
+}
+
+function appendCropCornerHitArea(cellUIGroup, cellIndex, corner, contentRect, cropRect) {
+    const hitSize = CONFIG.ui.cropCornerHitSize;
+    const halfHitSize = hitSize / 2;
+    const hitArea = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    let cornerX = cropRect.x;
+    let cornerY = cropRect.y;
+
+    if (corner === 'top-right' || corner === 'bottom-right') {
+        cornerX = cropRect.x + cropRect.width;
+    }
+
+    if (corner === 'bottom-right' || corner === 'bottom-left') {
+        cornerY = cropRect.y + cropRect.height;
+    }
+
+    hitArea.setAttribute('x', cornerX - halfHitSize);
+    hitArea.setAttribute('y', cornerY - halfHitSize);
+    hitArea.setAttribute('width', hitSize);
+    hitArea.setAttribute('height', hitSize);
+    hitArea.setAttribute('fill', 'transparent');
+    hitArea.setAttribute('pointer-events', 'all');
+    hitArea.style.cursor = corner === 'top-left' || corner === 'bottom-right'
+        ? 'nwse-resize'
+        : 'nesw-resize';
+    hitArea.style.touchAction = 'none';
+    hitArea.addEventListener('pointerdown', (event) => startCellCropDrag(event, cellIndex, corner, contentRect));
+    hitArea.addEventListener('click', (event) => {
+        event.stopPropagation();
+    });
+    cellUIGroup.appendChild(hitArea);
+}
+
+function renderCellCropBorder(cellUIGroup, cellIndex, contentRect, cropRect, hasImage) {
+    const borderRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    borderRect.setAttribute('x', cropRect.x);
+    borderRect.setAttribute('y', cropRect.y);
+    borderRect.setAttribute('width', cropRect.width);
+    borderRect.setAttribute('height', cropRect.height);
+    borderRect.setAttribute('fill', 'none');
+    borderRect.setAttribute('stroke', hasImage ? 'rgba(220, 38, 38, 0.95)' : '#adb5bd');
+    borderRect.setAttribute('stroke-width', CONFIG.ui.cropBorderStrokeWidth);
+    borderRect.setAttribute('pointer-events', 'none');
+
+    if (hasImage) {
+        borderRect.setAttribute('stroke-dasharray', '2 1.5');
+    }
+
+    cellUIGroup.appendChild(borderRect);
+    appendCropBorderHitArea(cellUIGroup, cellIndex, 'top', contentRect, cropRect);
+    appendCropBorderHitArea(cellUIGroup, cellIndex, 'right', contentRect, cropRect);
+    appendCropBorderHitArea(cellUIGroup, cellIndex, 'bottom', contentRect, cropRect);
+    appendCropBorderHitArea(cellUIGroup, cellIndex, 'left', contentRect, cropRect);
+    appendCropCornerHitArea(cellUIGroup, cellIndex, 'top-left', contentRect, cropRect);
+    appendCropCornerHitArea(cellUIGroup, cellIndex, 'top-right', contentRect, cropRect);
+    appendCropCornerHitArea(cellUIGroup, cellIndex, 'bottom-right', contentRect, cropRect);
+    appendCropCornerHitArea(cellUIGroup, cellIndex, 'bottom-left', contentRect, cropRect);
+}
+
 // SVG cell rendering function
 function renderSVGCell(cellContentGroup, cellUIGroup, cellIndex, cellX, cellY, cellWidth, cellHeight, cellPadding) {
     const cellData = layoutState.cells[cellIndex];
+    const contentRect = getContentRectFromCellBounds(cellX, cellY, cellWidth, cellHeight, cellPadding);
+    const cropRect = getCroppedContentRect(cellData, contentRect);
     
     if (cellData?.image) {
-        const imgX = cellX + cellPadding;
-        const imgY = cellY + cellPadding;
-        const imgWidth = cellWidth - (cellPadding * 2);
-        const imgHeight = cellHeight - (cellPadding * 2);
+        const imageGeometry = getCellImageGeometry(cellData, contentRect);
         
         // Create clipping path for the cell content area
         const clipId = `cell-clip-${cellIndex}`;
@@ -1997,10 +2681,10 @@ function renderSVGCell(cellContentGroup, cellUIGroup, cellIndex, cellX, cellY, c
         clipPath.setAttribute('id', clipId);
         
         const clipRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        clipRect.setAttribute('x', imgX);
-        clipRect.setAttribute('y', imgY);
-        clipRect.setAttribute('width', imgWidth);
-        clipRect.setAttribute('height', imgHeight);
+        clipRect.setAttribute('x', cropRect.x);
+        clipRect.setAttribute('y', cropRect.y);
+        clipRect.setAttribute('width', cropRect.width);
+        clipRect.setAttribute('height', cropRect.height);
         clipPath.appendChild(clipRect);
         defs.appendChild(clipPath);
         cellContentGroup.appendChild(defs);
@@ -2010,58 +2694,19 @@ function renderSVGCell(cellContentGroup, cellUIGroup, cellIndex, cellX, cellY, c
         imageEl.setAttribute('href', cellData.image.src);
         imageEl.setAttribute('clip-path', `url(#${clipId})`);
         imageEl.style.cursor = 'pointer';
-        
-        if (cellData.fillMode === 'cover') {
-            // For cover mode, implement custom scaling and positioning with transforms
-            const transform = cellData.transform || { scale: 1, translateX: 0, translateY: 0 };
-            
-            // Use the current image dimensions (already rotated if needed)
-            const imageAspect = cellData.image.width / cellData.image.height;
-            const cellAspect = imgWidth / imgHeight;
-            
-            let baseWidth, baseHeight;
-            if (imageAspect > cellAspect) {
-                // Image is wider than cell - scale to fill height
-                baseHeight = imgHeight;
-                baseWidth = baseHeight * imageAspect;
-            } else {
-                // Image is taller than cell - scale to fill width
-                baseWidth = imgWidth;
-                baseHeight = baseWidth / imageAspect;
-            }
-            
-            // Apply user transforms
-            const finalWidth = baseWidth * transform.scale;
-            const finalHeight = baseHeight * transform.scale;
-            
-            // Center the image in the cell and apply user translation
-            const centerX = imgX + imgWidth / 2;
-            const centerY = imgY + imgHeight / 2;
-            const finalX = centerX - finalWidth / 2 + transform.translateX;
-            const finalY = centerY - finalHeight / 2 + transform.translateY;
-            
-            imageEl.setAttribute('x', finalX);
-            imageEl.setAttribute('y', finalY);
-            imageEl.setAttribute('width', finalWidth);
-            imageEl.setAttribute('height', finalHeight);
-            imageEl.setAttribute('preserveAspectRatio', 'none'); // We handle aspect ratio manually
-            
+
+        if (imageGeometry) {
+            imageEl.setAttribute('x', imageGeometry.renderRect.x);
+            imageEl.setAttribute('y', imageGeometry.renderRect.y);
+            imageEl.setAttribute('width', imageGeometry.renderRect.width);
+            imageEl.setAttribute('height', imageGeometry.renderRect.height);
+            imageEl.setAttribute('preserveAspectRatio', imageGeometry.preserveAspectRatio);
+        }
+
+        if (cellData.fillMode === 'cover' && imageGeometry) {
             // Setup interactive behavior for cover mode
-            setupImageInteraction(imageEl, cellIndex, { x: imgX, y: imgY, width: imgWidth, height: imgHeight });
-            
+            setupImageInteraction(imageEl, cellIndex, imageGeometry.interactionRect);
         } else {
-            // Standard behavior for contain and fill modes
-            const preserveAspectRatioMap = {
-                'contain': 'xMidYMid meet',    // Scale to fit entirely within cell
-                'fill': 'none'                 // Stretch to fill entire cell
-            };
-            
-            imageEl.setAttribute('x', imgX);
-            imageEl.setAttribute('y', imgY);
-            imageEl.setAttribute('width', imgWidth);
-            imageEl.setAttribute('height', imgHeight);
-            imageEl.setAttribute('preserveAspectRatio', preserveAspectRatioMap[cellData.fillMode] || preserveAspectRatioMap['contain']);
-            
             // Add click handler for cycling fill mode
             imageEl.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -2070,6 +2715,7 @@ function renderSVGCell(cellContentGroup, cellUIGroup, cellIndex, cellX, cellY, c
         }
         
         cellContentGroup.appendChild(imageEl);
+        renderCellCropBorder(cellUIGroup, cellIndex, contentRect, cropRect, true);
         
         // Add fill mode cycling button (circle with square icon in top-left corner, inside cell)
         const fillModeBtn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -2257,9 +2903,9 @@ function renderSVGCell(cellContentGroup, cellUIGroup, cellIndex, cellX, cellY, c
         cellRect.setAttribute('width', cellWidth);
         cellRect.setAttribute('height', cellHeight);
         cellRect.setAttribute('fill', '#f8f9fa');
-        cellRect.setAttribute('stroke', '#dee2e6');
-        cellRect.setAttribute('stroke-width', '0.5');
+        cellRect.setAttribute('stroke', 'none');
         cellUIGroup.appendChild(cellRect);
+        renderCellCropBorder(cellUIGroup, cellIndex, contentRect, cropRect, false);
         
         // Empty cell - add subtle "+" button
         const addBtn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -2345,7 +2991,7 @@ function renderSVGSheet() {
         renderSVGCell(cellContentGroup, cellUIGroup, i, cellX, cellY, cellWidth, cellHeight, gridSpacing.cellPadding);
         
         // Add click handler for cell interaction to UI layer
-        cellUIGroup.addEventListener('click', () => handleCellAdd(i));
+        cellUIGroup.addEventListener('click', (event) => handleCellUIClick(event, i));
         
         // Add groups to respective layers
         contentLayer.appendChild(cellContentGroup);
@@ -2452,14 +3098,22 @@ function highlightGridArea(cols, rows) {
 function selectGrid(cols, rows) {
     const currentTotalCells = layoutState.grid.rows * layoutState.grid.cols;
     const newTotalCells = rows * cols;
+    const gridChanged = cols !== layoutState.grid.cols || rows !== layoutState.grid.rows;
+
+    if (!gridChanged) {
+        resetCellCrops();
+        updateSheetGrid();
+        hideGridPicker();
+        return;
+    }
     
     // Check if we're reducing the grid size and if there's data that would be lost
     if (newTotalCells < currentTotalCells) {
         const cellsToRemove = layoutState.cells.slice(newTotalCells);
-        const hasDataInRemovedCells = cellsToRemove.some(cell => cell !== null && cell !== undefined);
+        const hasDataInRemovedCells = cellsToRemove.some(isCellImageContent);
         
         if (hasDataInRemovedCells) {
-            const lostContentCount = cellsToRemove.filter(cell => cell !== null && cell !== undefined).length;
+            const lostContentCount = cellsToRemove.filter(isCellImageContent).length;
             const confirmMessage = 
                 `Warning: Changing to a ${cols} × ${rows} grid will remove ${currentTotalCells - newTotalCells} cells.\n\n` +
                 `This will permanently delete ${lostContentCount} piece(s) of content from your layout.\n\n` +
@@ -2481,6 +3135,8 @@ function selectGrid(cols, rows) {
     if (layoutState.cells.length > totalCells) {
         layoutState.cells = layoutState.cells.slice(0, totalCells);
     }
+
+    resetCellCrops();
     
     updateSheetGrid();
     hideGridPicker();
@@ -3133,12 +3789,7 @@ function getCellContentCoordinates(cellIndex) {
     const cellCoords = getCellCoordinates(cellIndex);
     const { cellPadding } = CONFIG.gridSpacing;
 
-    return {
-        x: cellCoords.x + cellPadding,
-        y: cellCoords.y + cellPadding,
-        width: cellCoords.width - (cellPadding * 2),
-        height: cellCoords.height - (cellPadding * 2)
-    };
+    return getContentRectFromCellBounds(cellCoords.x, cellCoords.y, cellCoords.width, cellCoords.height, cellPadding);
 }
 
 function getActualImageBounds(cellIndex) {
@@ -3146,97 +3797,12 @@ function getActualImageBounds(cellIndex) {
     if (!cellData?.image) return null;
     
     const contentCoords = getCellContentCoordinates(cellIndex);
-    const { image, fillMode, transform } = cellData;
-    
-    const imgX = contentCoords.x;
-    const imgY = contentCoords.y;
-    const imgWidth = contentCoords.width;
-    const imgHeight = contentCoords.height;
-    
-    switch (fillMode) {
-        case 'fill':
-            // Fill mode stretches to entire cell content area
-            return {
-                x: imgX,
-                y: imgY,
-                width: imgWidth,
-                height: imgHeight
-            };
-            
-        case 'cover':
-            // Cover mode: calculate actual visible image bounds considering user transforms
-            const imageAspectCover = image.width / image.height;
-            const cellAspectCover = imgWidth / imgHeight;
-            
-            // Calculate base size (scale to fill cell)
-            let baseWidth, baseHeight;
-            if (imageAspectCover > cellAspectCover) {
-                // Image is wider than cell - scale to fill height
-                baseHeight = imgHeight;
-                baseWidth = baseHeight * imageAspectCover;
-            } else {
-                // Image is taller than cell - scale to fill width
-                baseWidth = imgWidth;
-                baseHeight = baseWidth / imageAspectCover;
-            }
-            
-            // Apply user transforms
-            const transformCover = transform || { scale: 1, translateX: 0, translateY: 0 };
-            const finalWidth = baseWidth * transformCover.scale;
-            const finalHeight = baseHeight * transformCover.scale;
-            
-            // Calculate image position with transforms
-            const centerX = imgX + imgWidth / 2;
-            const centerY = imgY + imgHeight / 2;
-            const finalX = centerX - finalWidth / 2 + transformCover.translateX;
-            const finalY = centerY - finalHeight / 2 + transformCover.translateY;
-            
-            // Find intersection between transformed image and cell area
-            const visibleLeft = Math.max(finalX, imgX);
-            const visibleTop = Math.max(finalY, imgY);
-            const visibleRight = Math.min(finalX + finalWidth, imgX + imgWidth);
-            const visibleBottom = Math.min(finalY + finalHeight, imgY + imgHeight);
-            
-            // If no intersection, return null (shouldn't happen in practice)
-            if (visibleLeft >= visibleRight || visibleTop >= visibleBottom) {
-                return null;
-            }
-            
-            return {
-                x: visibleLeft,
-                y: visibleTop,
-                width: visibleRight - visibleLeft,
-                height: visibleBottom - visibleTop
-            };
-            
-        case 'contain':
-        default:
-            // Contain mode: scale to fit within cell while maintaining aspect ratio
-            const imageAspect = image.width / image.height;
-            const cellAspect = imgWidth / imgHeight;
-            
-            let actualWidth, actualHeight;
-            if (imageAspect > cellAspect) {
-                // Image is wider - fit to width
-                actualWidth = imgWidth;
-                actualHeight = actualWidth / imageAspect;
-            } else {
-                // Image is taller - fit to height
-                actualHeight = imgHeight;
-                actualWidth = actualHeight * imageAspect;
-            }
-            
-            // Center the image in the cell
-            const actualX = imgX + (imgWidth - actualWidth) / 2;
-            const actualY = imgY + (imgHeight - actualHeight) / 2;
-            
-            return {
-                x: actualX,
-                y: actualY,
-                width: actualWidth,
-                height: actualHeight
-            };
-    }
+    const cropCoords = getCroppedContentRect(cellData, contentCoords);
+    const imageGeometry = getCellImageGeometry(cellData, contentCoords);
+
+    if (!imageGeometry) return null;
+
+    return intersectRects(imageGeometry.visibleRect, cropCoords);
 }
 
 function downloadPDF(pdf, quality) {

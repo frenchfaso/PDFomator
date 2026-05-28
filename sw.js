@@ -1,7 +1,8 @@
 // PDFomator Service Worker
 // Simple offline cache for static assets
 
-const CACHE_NAME = 'pdfomator-v1.3.16';
+const CACHE_PREFIX = 'pdfomator-';
+const CACHE_NAME = 'pdfomator-v1.3.24';
 const STATIC_ASSETS = [
     './',
     './index.html',
@@ -9,6 +10,7 @@ const STATIC_ASSETS = [
     './main.js',
     './sw.js',
     './manifest.json',
+    './pdfomator-icon.svg',
     './vendor/pico.red.min.css',
     './vendor/pdf.mjs',
     './vendor/pdf.worker.mjs',
@@ -76,7 +78,7 @@ self.addEventListener('activate', event => {
             .then(cacheNames => {
                 return Promise.all(
                     cacheNames.map(cacheName => {
-                        if (cacheName !== CACHE_NAME) {
+                        if (cacheName.startsWith(CACHE_PREFIX) && cacheName !== CACHE_NAME) {
                             log('log', 'Deleting old cache:', cacheName);
                             return caches.delete(cacheName);
                         }

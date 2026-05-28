@@ -12,8 +12,8 @@ A client-side Progressive Web App that arranges multiple PDF pages and images in
 - **📐 Flexible Grids** - 1×1 to 5×5 grid layouts with visual preview
 - **📏 Paper Sizes** - A4/A3 in portrait/landscape orientations
 - **🎯 Smart Image Fitting** - Contain, cover, or fill modes with visual indicators
-- **� Rotation Control** - Rotate images 90° clockwise with persistent rotation through mode changes
-- **�👆 Touch Controls** - Pan, zoom, and pinch gestures for precise positioning
+- **🔄 Rotation Control** - Rotate images 90° clockwise with persistent rotation through mode changes
+- **👆 Touch Controls** - Pan, zoom, and pinch gestures for precise positioning
 - **⌨️ Keyboard Shortcuts** - ESC to close dialogs, Ctrl/Cmd+E to export
 - **🗑️ Easy Management** - Click to remove content, reset transformations
 - **⬇️ High-Quality Export** - Standard or HD quality PDF output
