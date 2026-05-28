@@ -2,7 +2,7 @@
 // Simple offline cache for static assets
 
 const CACHE_PREFIX = 'pdfomator-';
-const CACHE_NAME = 'pdfomator-v1.3.27';
+const CACHE_NAME = 'pdfomator-v1.3.28';
 const STATIC_ASSETS = [
     './',
     './index.html',

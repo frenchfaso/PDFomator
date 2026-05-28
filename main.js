@@ -284,7 +284,8 @@ const CONFIG = {
         pinchDampingZoomedIn: 0.2,  // Pinch damping when zoomed in
         pinchTransitionScale: 1.0,  // Scale where damping transitions (low)
         pinchTransitionScaleHigh: 3.0, // Scale where damping transitions (high)
-        minCropSize: 8              // Minimum crop rectangle size (mm)
+        minCropSize: 8,             // Minimum crop rectangle size (mm)
+        cropSnapThreshold: 2        // Crop edge alignment snap distance (mm)
     },
     
     // Cache management
@@ -2597,6 +2598,66 @@ function previewCellCrop(crop, contentRect, cropBorderRect, clipRect) {
     setSVGRectAttributes(clipRect, cropRect);
 }
 
+function getNearestCropSnapValue(value, targets) {
+    const threshold = CONFIG.interaction.cropSnapThreshold;
+    let nearestValue = value;
+    let nearestDistance = threshold;
+
+    for (const target of targets) {
+        const distance = Math.abs(target - value);
+        if (distance <= nearestDistance) {
+            nearestValue = target;
+            nearestDistance = distance;
+        }
+    }
+
+    return nearestValue;
+}
+
+function collectCropSnapTargets(activeCellIndex) {
+    const { totalCells, gridSpacing } = getGridMetrics();
+    const targets = { x: [], y: [] };
+
+    if (totalCells <= 1) {
+        return targets;
+    }
+
+    for (let i = 0; i < totalCells; i++) {
+        if (i === activeCellIndex) continue;
+        if (!hasCustomCrop(layoutState.cells[i])) continue;
+
+        const { x, y, width, height } = getCellCoordinates(i);
+        const contentRect = getContentRectFromCellBounds(x, y, width, height, gridSpacing.cellPadding);
+        const cropRect = getCroppedContentRect(layoutState.cells[i], contentRect);
+        targets.x.push(cropRect.x, cropRect.x + cropRect.width);
+        targets.y.push(cropRect.y, cropRect.y + cropRect.height);
+    }
+
+    return targets;
+}
+
+function applyCropSnap(edge, crop, contentRect, snapTargets) {
+    const nextCrop = clampCellCrop(crop, contentRect.width, contentRect.height);
+    const cropRect = getCroppedContentRect({ crop: nextCrop }, contentRect);
+    const rightEdge = contentRect.x + contentRect.width;
+    const bottomEdge = contentRect.y + contentRect.height;
+
+    if (edge === 'left' || edge === 'top-left' || edge === 'bottom-left') {
+        nextCrop.left = getNearestCropSnapValue(cropRect.x, snapTargets.x) - contentRect.x;
+    }
+    if (edge === 'right' || edge === 'top-right' || edge === 'bottom-right') {
+        nextCrop.right = rightEdge - getNearestCropSnapValue(cropRect.x + cropRect.width, snapTargets.x);
+    }
+    if (edge === 'top' || edge === 'top-left' || edge === 'top-right') {
+        nextCrop.top = getNearestCropSnapValue(cropRect.y, snapTargets.y) - contentRect.y;
+    }
+    if (edge === 'bottom' || edge === 'bottom-left' || edge === 'bottom-right') {
+        nextCrop.bottom = bottomEdge - getNearestCropSnapValue(cropRect.y + cropRect.height, snapTargets.y);
+    }
+
+    return clampCellCrop(nextCrop, contentRect.width, contentRect.height);
+}
+
 function startCellCropDragFromClientPoint(event, cellIndex, edge, contentRect, clientX, clientY, options = {}) {
     if (cropDragState.active) {
         event.preventDefault();
@@ -2631,13 +2692,15 @@ function startCellCropDragFromClientPoint(event, cellIndex, edge, contentRect, c
     const clipRect = elements.sheet.querySelector(`#cell-clip-${cellIndex} rect`);
     const startPoint = getClientPointInSVG(svg, clientX, clientY);
     const startCrop = clampCellCrop(layoutState.cells[cellIndex]?.crop, contentRect.width, contentRect.height);
+    const snapTargets = collectCropSnapTargets(cellIndex);
     let pendingPoint = startPoint;
     let currentCrop = startCrop;
     let frameRequestId = null;
 
     const applyPendingCrop = () => {
         frameRequestId = null;
-        currentCrop = clampCellCrop(getCropFromDragPoint(edge, startCrop, startPoint, pendingPoint), contentRect.width, contentRect.height);
+        const draggedCrop = getCropFromDragPoint(edge, startCrop, startPoint, pendingPoint);
+        currentCrop = applyCropSnap(edge, draggedCrop, contentRect, snapTargets);
         previewCellCrop(currentCrop, contentRect, cropBorderRect, clipRect);
     };
 
