@@ -139,7 +139,7 @@ function hasBlockingOverlayOpen() {
 }
 
 function handlePageSwipeStart(event) {
-    if (appState.pages.length <= 1 || hasBlockingOverlayOpen() || event.touches.length !== 1) {
+    if (cropDragState.active || appState.pages.length <= 1 || hasBlockingOverlayOpen() || event.touches.length !== 1) {
         resetPageSwipeTracking();
         return;
     }
@@ -151,7 +151,7 @@ function handlePageSwipeStart(event) {
 }
 
 function handlePageSwipeEnd(event) {
-    if (!pageSwipeState.tracking || appState.pages.length <= 1 || event.changedTouches.length !== 1) {
+    if (cropDragState.active || !pageSwipeState.tracking || appState.pages.length <= 1 || event.changedTouches.length !== 1) {
         resetPageSwipeTracking();
         return;
     }
@@ -446,8 +446,12 @@ const cameraState = {
     selectedDeviceId: ''
 };
 const cropDragState = {
+    active: false,
     suppressNextClick: false,
-    suppressClickTimeoutId: null
+    suppressClickTimeoutId: null,
+    previousSheetStackTouchAction: '',
+    previousSheetTouchAction: '',
+    previousBodyUserSelect: ''
 };
 
 function isCellImageContent(cellData) {
@@ -2176,10 +2180,15 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
         let isInteracting = false;
         let startTouches = [];
         let startTransform = { ...cellData.transform };
+        let mouseDragMoved = false;
         
         // Handle click for desktop fill mode cycling
         imageEl.addEventListener('click', (e) => {
             e.stopPropagation();
+            if (mouseDragMoved) {
+                mouseDragMoved = false;
+                return;
+            }
             // Only handle click on desktop (no touch support)
             if (!('ontouchstart' in window) && !isInteracting) {
                 cycleFillMode(cellIndex);
@@ -2295,6 +2304,7 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
         isInteracting = true;
         startTouches = [{ x: e.clientX, y: e.clientY }];
         startTransform = { ...cellData.transform };
+        mouseDragMoved = false;
         
         document.addEventListener('mousemove', handleMouseMove);
         document.addEventListener('mouseup', endInteraction);
@@ -2305,6 +2315,10 @@ function setupImageInteraction(imageEl, cellIndex, cellBounds) {
         
         const deltaX = e.clientX - startTouches[0].x;
         const deltaY = e.clientY - startTouches[0].y;
+
+        if (Math.hypot(deltaX, deltaY) > 3) {
+            mouseDragMoved = true;
+        }
         
         updateTransform(deltaX, deltaY, 1);
     }
@@ -2508,6 +2522,36 @@ function getClientPointInSVG(svg, clientX, clientY) {
     };
 }
 
+function lockCropTouchDrag(svg) {
+    cropDragState.previousSheetStackTouchAction = elements.sheetStack?.style.touchAction || '';
+    cropDragState.previousSheetTouchAction = elements.sheet?.style.touchAction || '';
+    cropDragState.previousBodyUserSelect = document.body.style.userSelect || '';
+
+    if (elements.sheetStack) {
+        elements.sheetStack.style.touchAction = 'none';
+    }
+    if (elements.sheet) {
+        elements.sheet.style.touchAction = 'none';
+    }
+    if (svg) {
+        svg.style.touchAction = 'none';
+    }
+    document.body.style.userSelect = 'none';
+}
+
+function unlockCropTouchDrag(svg) {
+    if (elements.sheetStack) {
+        elements.sheetStack.style.touchAction = cropDragState.previousSheetStackTouchAction;
+    }
+    if (elements.sheet) {
+        elements.sheet.style.touchAction = cropDragState.previousSheetTouchAction;
+    }
+    if (svg) {
+        svg.style.touchAction = '';
+    }
+    document.body.style.userSelect = cropDragState.previousBodyUserSelect;
+}
+
 function startCellCropDrag(event, cellIndex, edge, contentRect) {
     event.preventDefault();
     event.stopPropagation();
@@ -2518,15 +2562,25 @@ function startCellCropDrag(event, cellIndex, edge, contentRect) {
     const svg = elements.sheet.querySelector('svg');
     if (!svg) return;
 
+    cropDragState.active = true;
+    const dragTarget = event.currentTarget;
+    try {
+        dragTarget.setPointerCapture?.(event.pointerId);
+    } catch (error) {
+        // Pointer capture is best-effort; document listeners keep the drag working.
+    }
+
+    lockCropTouchDrag(svg);
+
     const startPoint = getClientPointInSVG(svg, event.clientX, event.clientY);
     const startCrop = clampCellCrop(layoutState.cells[cellIndex]?.crop, contentRect.width, contentRect.height);
+    let pendingPoint = startPoint;
+    let frameRequestId = null;
 
-    const handlePointerMove = (moveEvent) => {
-        moveEvent.preventDefault();
-
-        const currentPoint = getClientPointInSVG(svg, moveEvent.clientX, moveEvent.clientY);
-        const deltaX = currentPoint.x - startPoint.x;
-        const deltaY = currentPoint.y - startPoint.y;
+    const applyPendingCrop = () => {
+        frameRequestId = null;
+        const deltaX = pendingPoint.x - startPoint.x;
+        const deltaY = pendingPoint.y - startPoint.y;
         const nextCrop = { ...startCrop };
 
         if (edge === 'top') {
@@ -2555,13 +2609,34 @@ function startCellCropDrag(event, cellIndex, edge, contentRect) {
         updateSingleCell(cellIndex);
     };
 
-    const endDrag = () => {
+    const handlePointerMove = (moveEvent) => {
+        moveEvent.preventDefault();
+        moveEvent.stopPropagation();
+
+        pendingPoint = getClientPointInSVG(svg, moveEvent.clientX, moveEvent.clientY);
+        if (frameRequestId === null) {
+            frameRequestId = requestAnimationFrame(applyPendingCrop);
+        }
+    };
+
+    const endDrag = (endEvent) => {
+        if (frameRequestId !== null) {
+            cancelAnimationFrame(frameRequestId);
+            applyPendingCrop();
+        }
+        try {
+            dragTarget.releasePointerCapture?.(endEvent.pointerId);
+        } catch (error) {
+            // Ignore if capture was already released by the browser.
+        }
+        cropDragState.active = false;
+        unlockCropTouchDrag(svg);
         document.removeEventListener('pointermove', handlePointerMove);
         document.removeEventListener('pointerup', endDrag);
         document.removeEventListener('pointercancel', endDrag);
     };
 
-    document.addEventListener('pointermove', handlePointerMove);
+    document.addEventListener('pointermove', handlePointerMove, { passive: false });
     document.addEventListener('pointerup', endDrag);
     document.addEventListener('pointercancel', endDrag);
 }
