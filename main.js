@@ -2552,7 +2552,58 @@ function unlockCropTouchDrag(svg) {
     document.body.style.userSelect = cropDragState.previousBodyUserSelect;
 }
 
-function startCellCropDrag(event, cellIndex, edge, contentRect) {
+function setSVGRectAttributes(rect, rectData) {
+    if (!rect) return;
+
+    rect.setAttribute('x', rectData.x);
+    rect.setAttribute('y', rectData.y);
+    rect.setAttribute('width', rectData.width);
+    rect.setAttribute('height', rectData.height);
+}
+
+function getCropFromDragPoint(edge, startCrop, startPoint, currentPoint) {
+    const deltaX = currentPoint.x - startPoint.x;
+    const deltaY = currentPoint.y - startPoint.y;
+    const nextCrop = { ...startCrop };
+
+    if (edge === 'top') {
+        nextCrop.top = startCrop.top + deltaY;
+    } else if (edge === 'right') {
+        nextCrop.right = startCrop.right - deltaX;
+    } else if (edge === 'bottom') {
+        nextCrop.bottom = startCrop.bottom - deltaY;
+    } else if (edge === 'left') {
+        nextCrop.left = startCrop.left + deltaX;
+    } else if (edge === 'top-left') {
+        nextCrop.top = startCrop.top + deltaY;
+        nextCrop.left = startCrop.left + deltaX;
+    } else if (edge === 'top-right') {
+        nextCrop.top = startCrop.top + deltaY;
+        nextCrop.right = startCrop.right - deltaX;
+    } else if (edge === 'bottom-right') {
+        nextCrop.bottom = startCrop.bottom - deltaY;
+        nextCrop.right = startCrop.right - deltaX;
+    } else if (edge === 'bottom-left') {
+        nextCrop.bottom = startCrop.bottom - deltaY;
+        nextCrop.left = startCrop.left + deltaX;
+    }
+
+    return nextCrop;
+}
+
+function previewCellCrop(crop, contentRect, cropBorderRect, clipRect) {
+    const cropRect = getCroppedContentRect({ crop }, contentRect);
+    setSVGRectAttributes(cropBorderRect, cropRect);
+    setSVGRectAttributes(clipRect, cropRect);
+}
+
+function startCellCropDragFromClientPoint(event, cellIndex, edge, contentRect, clientX, clientY, options = {}) {
+    if (cropDragState.active) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+    }
+
     event.preventDefault();
     event.stopPropagation();
     hideBitonalPopover();
@@ -2564,81 +2615,127 @@ function startCellCropDrag(event, cellIndex, edge, contentRect) {
 
     cropDragState.active = true;
     const dragTarget = event.currentTarget;
-    try {
-        dragTarget.setPointerCapture?.(event.pointerId);
-    } catch (error) {
-        // Pointer capture is best-effort; document listeners keep the drag working.
+    const pointerId = options.pointerId;
+
+    if (pointerId !== undefined) {
+        try {
+            dragTarget.setPointerCapture?.(pointerId);
+        } catch (error) {
+            // Pointer capture is best-effort; document listeners keep the drag working.
+        }
     }
 
     lockCropTouchDrag(svg);
 
-    const startPoint = getClientPointInSVG(svg, event.clientX, event.clientY);
+    const cropBorderRect = dragTarget.parentNode?.querySelector('[data-crop-border="true"]');
+    const clipRect = elements.sheet.querySelector(`#cell-clip-${cellIndex} rect`);
+    const startPoint = getClientPointInSVG(svg, clientX, clientY);
     const startCrop = clampCellCrop(layoutState.cells[cellIndex]?.crop, contentRect.width, contentRect.height);
     let pendingPoint = startPoint;
+    let currentCrop = startCrop;
     let frameRequestId = null;
 
     const applyPendingCrop = () => {
         frameRequestId = null;
-        const deltaX = pendingPoint.x - startPoint.x;
-        const deltaY = pendingPoint.y - startPoint.y;
-        const nextCrop = { ...startCrop };
-
-        if (edge === 'top') {
-            nextCrop.top = startCrop.top + deltaY;
-        } else if (edge === 'right') {
-            nextCrop.right = startCrop.right - deltaX;
-        } else if (edge === 'bottom') {
-            nextCrop.bottom = startCrop.bottom - deltaY;
-        } else if (edge === 'left') {
-            nextCrop.left = startCrop.left + deltaX;
-        } else if (edge === 'top-left') {
-            nextCrop.top = startCrop.top + deltaY;
-            nextCrop.left = startCrop.left + deltaX;
-        } else if (edge === 'top-right') {
-            nextCrop.top = startCrop.top + deltaY;
-            nextCrop.right = startCrop.right - deltaX;
-        } else if (edge === 'bottom-right') {
-            nextCrop.bottom = startCrop.bottom - deltaY;
-            nextCrop.right = startCrop.right - deltaX;
-        } else if (edge === 'bottom-left') {
-            nextCrop.bottom = startCrop.bottom - deltaY;
-            nextCrop.left = startCrop.left + deltaX;
-        }
-
-        setCellCrop(cellIndex, nextCrop, contentRect);
-        updateSingleCell(cellIndex);
+        currentCrop = clampCellCrop(getCropFromDragPoint(edge, startCrop, startPoint, pendingPoint), contentRect.width, contentRect.height);
+        previewCellCrop(currentCrop, contentRect, cropBorderRect, clipRect);
     };
 
-    const handlePointerMove = (moveEvent) => {
-        moveEvent.preventDefault();
-        moveEvent.stopPropagation();
-
-        pendingPoint = getClientPointInSVG(svg, moveEvent.clientX, moveEvent.clientY);
+    const queueCropPreview = (moveClientX, moveClientY) => {
+        pendingPoint = getClientPointInSVG(svg, moveClientX, moveClientY);
         if (frameRequestId === null) {
             frameRequestId = requestAnimationFrame(applyPendingCrop);
         }
     };
 
-    const endDrag = (endEvent) => {
+    const handlePointerMove = (moveEvent) => {
+        if (pointerId !== undefined && moveEvent.pointerId !== pointerId) return;
+
+        moveEvent.preventDefault();
+        moveEvent.stopPropagation();
+        queueCropPreview(moveEvent.clientX, moveEvent.clientY);
+    };
+
+    const touchIdentifier = options.touchIdentifier;
+    const handleTouchMove = (moveEvent) => {
+        const touch = Array.from(moveEvent.touches).find(item => item.identifier === touchIdentifier);
+        if (!touch) return;
+
+        moveEvent.preventDefault();
+        moveEvent.stopPropagation();
+        queueCropPreview(touch.clientX, touch.clientY);
+    };
+
+    const endDrag = (endEvent = {}) => {
+        if (endEvent.pointerId !== undefined && pointerId !== undefined && endEvent.pointerId !== pointerId) {
+            return;
+        }
+
         if (frameRequestId !== null) {
             cancelAnimationFrame(frameRequestId);
             applyPendingCrop();
         }
-        try {
-            dragTarget.releasePointerCapture?.(endEvent.pointerId);
-        } catch (error) {
-            // Ignore if capture was already released by the browser.
+
+        setCellCrop(cellIndex, currentCrop, contentRect);
+        updateSingleCell(cellIndex);
+
+        if (pointerId !== undefined) {
+            try {
+                dragTarget.releasePointerCapture?.(pointerId);
+            } catch (error) {
+                // Ignore if capture was already released by the browser.
+            }
         }
+
         cropDragState.active = false;
         unlockCropTouchDrag(svg);
         document.removeEventListener('pointermove', handlePointerMove);
         document.removeEventListener('pointerup', endDrag);
         document.removeEventListener('pointercancel', endDrag);
+        document.removeEventListener('touchmove', handleTouchMove);
+        document.removeEventListener('touchend', handleTouchEnd);
+        document.removeEventListener('touchcancel', handleTouchEnd);
     };
 
-    document.addEventListener('pointermove', handlePointerMove, { passive: false });
-    document.addEventListener('pointerup', endDrag);
-    document.addEventListener('pointercancel', endDrag);
+    const handleTouchEnd = (endEvent) => {
+        const activeTouchExists = Array.from(endEvent.touches).some(item => item.identifier === touchIdentifier);
+        if (!activeTouchExists) {
+            endDrag();
+        }
+    };
+
+    if (options.inputType === 'touch') {
+        document.addEventListener('touchmove', handleTouchMove, { passive: false });
+        document.addEventListener('touchend', handleTouchEnd);
+        document.addEventListener('touchcancel', handleTouchEnd);
+    } else {
+        document.addEventListener('pointermove', handlePointerMove, { passive: false });
+        document.addEventListener('pointerup', endDrag);
+        document.addEventListener('pointercancel', endDrag);
+    }
+}
+
+function startCellCropDrag(event, cellIndex, edge, contentRect) {
+    if (event.pointerType === 'touch') {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+    }
+
+    startCellCropDragFromClientPoint(event, cellIndex, edge, contentRect, event.clientX, event.clientY, {
+        inputType: 'pointer',
+        pointerId: event.pointerId
+    });
+}
+
+function startCellCropTouchDrag(event, cellIndex, edge, contentRect) {
+    const touch = event.changedTouches[0];
+    if (!touch || event.touches.length !== 1) return;
+
+    startCellCropDragFromClientPoint(event, cellIndex, edge, contentRect, touch.clientX, touch.clientY, {
+        inputType: 'touch',
+        touchIdentifier: touch.identifier
+    });
 }
 
 function appendCropBorderHitArea(cellUIGroup, cellIndex, edge, contentRect, cropRect) {
@@ -2675,6 +2772,7 @@ function appendCropBorderHitArea(cellUIGroup, cellIndex, edge, contentRect, crop
     hitArea.setAttribute('fill', 'transparent');
     hitArea.setAttribute('pointer-events', 'all');
     hitArea.style.touchAction = 'none';
+    hitArea.addEventListener('touchstart', (event) => startCellCropTouchDrag(event, cellIndex, edge, contentRect), { passive: false });
     hitArea.addEventListener('pointerdown', (event) => startCellCropDrag(event, cellIndex, edge, contentRect));
     hitArea.addEventListener('click', (event) => {
         event.stopPropagation();
@@ -2707,6 +2805,7 @@ function appendCropCornerHitArea(cellUIGroup, cellIndex, corner, contentRect, cr
         ? 'nwse-resize'
         : 'nesw-resize';
     hitArea.style.touchAction = 'none';
+    hitArea.addEventListener('touchstart', (event) => startCellCropTouchDrag(event, cellIndex, corner, contentRect), { passive: false });
     hitArea.addEventListener('pointerdown', (event) => startCellCropDrag(event, cellIndex, corner, contentRect));
     hitArea.addEventListener('click', (event) => {
         event.stopPropagation();
@@ -2724,6 +2823,7 @@ function renderCellCropBorder(cellUIGroup, cellIndex, contentRect, cropRect, has
     borderRect.setAttribute('stroke', hasImage ? 'rgba(220, 38, 38, 0.95)' : '#adb5bd');
     borderRect.setAttribute('stroke-width', CONFIG.ui.cropBorderStrokeWidth);
     borderRect.setAttribute('pointer-events', 'none');
+    borderRect.setAttribute('data-crop-border', 'true');
 
     if (hasImage) {
         borderRect.setAttribute('stroke-dasharray', '2 1.5');
