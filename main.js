@@ -3,6 +3,752 @@
 
 import * as pdfjsLib from './vendor/pdf.mjs';
 
+const SUPPORTED_LANGUAGES = ['en', 'it', 'de', 'es', 'fr'];
+const FALLBACK_LANGUAGE = 'en';
+const I18N_RESOURCES = {
+    en: {
+        translation: {
+            app: {
+                description: 'Minimal Mobile PWA to Pack PDF Pages on a Sheet'
+            },
+            common: {
+                cancel: 'Cancel'
+            },
+            actions: {
+                changePaperSize: 'Change Paper Size',
+                selectGrid: 'Select Grid Layout',
+                runOcr: 'Run OCR',
+                exportPdf: 'Export PDF'
+            },
+            page: {
+                controls: 'Page controls',
+                previous: 'Previous Page',
+                next: 'Next Page',
+                add: 'Add Page',
+                remove: 'Remove Current Page',
+                deleteConfirm: 'Delete this page and its contents?'
+            },
+            grid: {
+                title: 'Select Grid Size',
+                shrinkWarning_one: 'Warning: changing to a {{cols}} × {{rows}} grid will remove {{removedCells}} cells.\n\nThis will permanently delete {{count}} content item from your layout.\n\nContinue?',
+                shrinkWarning_other: 'Warning: changing to a {{cols}} × {{rows}} grid will remove {{removedCells}} cells.\n\nThis will permanently delete {{count}} content items from your layout.\n\nContinue?'
+            },
+            paper: {
+                title: 'Select Paper Size & Orientation',
+                a4Portrait: 'A4 Portrait',
+                a4Landscape: 'A4 Landscape',
+                a3Portrait: 'A3 Portrait',
+                a3Landscape: 'A3 Landscape'
+            },
+            pdfPage: {
+                title: 'Select PDF Page',
+                selectAria: 'Select PDF page {{page}}',
+                loading: 'Loading...',
+                pageLabel: 'Page {{page}}',
+                pageErrorLabel: 'Page {{page}} (Error)',
+                previewUnavailable: 'Preview unavailable',
+                processingSelected: 'Processing selected page...',
+                processSelectedFailed: 'Failed to process selected page.'
+            },
+            export: {
+                title: 'Export Quality',
+                sdTitle: 'SD (web, mail)',
+                sdDescription: 'Smaller files',
+                hdTitle: 'HD (print)',
+                hdDescription: 'Bigger files',
+                standardLabel: 'Standard (Fast)',
+                highLabel: 'High Quality',
+                noContent: 'Please add some content to export!',
+                exporting: 'Exporting in {{quality}} quality...',
+                rasterizingPage: 'Rasterizing page {{current}} of {{total}}...',
+                assembling: 'Assembling PDF...',
+                preparingDownload: 'Preparing download...',
+                complete: 'Export complete!',
+                failed: 'Export failed. Please try again.'
+            },
+            fileType: {
+                title: 'Choose Content Type',
+                pdf: 'PDF Document',
+                image: 'Image File',
+                camera: 'Camera'
+            },
+            camera: {
+                title: 'Take Photo',
+                device: 'Camera',
+                capturedPreview: 'Captured photo preview',
+                capture: 'Capture',
+                usePhoto: 'Use Photo',
+                retake: 'Retake',
+                unavailable: 'Camera access is unavailable. Please use Image File instead.',
+                switchFailed: 'Failed to switch camera. Please try another device.',
+                previewNotReady: 'Camera preview is not ready yet. Please try again.',
+                captureFailed: 'Failed to capture photo. Please try again.',
+                processFailed: 'Failed to process photo. Please try again.',
+                useFailed: 'Failed to use captured photo. Please try again.',
+                deviceFallback: 'Camera {{index}}',
+                photoTitle: 'Camera photo'
+            },
+            loading: {
+                title: 'Loading',
+                processing: 'Processing...',
+                processingPdf: 'Processing PDF...',
+                processingImage: 'Processing image...',
+                processingPhoto: 'Processing photo...'
+            },
+            filters: {
+                bitonalThreshold: '1-bit threshold',
+                applyFailed: 'Failed to apply filter. Please try again.'
+            },
+            image: {
+                processFailed: 'Failed to process image. Please try again.',
+                rotateFailed: 'Failed to rotate image. Please try again.'
+            },
+            pdf: {
+                jsIncomplete: 'PDF.js failed to load completely. Please refresh the page.',
+                jsLoadFailed: 'PDF processing library failed to load. Please refresh the page.',
+                processFailed: 'Failed to process PDF. Please try again.',
+                libraryNotLoaded: 'PDF.js library not loaded. Please refresh the page and try again.'
+            },
+            ocr: {
+                noImages: 'No images to OCR.',
+                loadingEngine: 'Loading OCR engine...',
+                preparingPage: 'Preparing OCR page {{current}} of {{total}}...',
+                runningCell: 'OCR page {{page}}, cell {{cell}}...',
+                completeNoText: 'OCR complete: no text found.',
+                completeWithText_one: 'Selectable text ready: {{count}} line recognized.',
+                completeWithText_other: 'Selectable text ready: {{count}} lines recognized.',
+                failed: 'OCR failed. Please try again.',
+                noExportableCells: 'No exportable cells found for OCR.'
+            },
+            errors: {
+                prefix: 'PDFomator Error: {{message}}',
+                unexpected: 'An unexpected error occurred. Please refresh the page and try again.'
+            },
+            update: {
+                available: 'App updated! New version available.',
+                refresh: 'Refresh',
+                dismiss: 'Dismiss'
+            }
+        }
+    },
+    it: {
+        translation: {
+            app: {
+                description: 'PWA mobile minimale per impaginare pagine PDF su un foglio'
+            },
+            common: {
+                cancel: 'Annulla'
+            },
+            actions: {
+                changePaperSize: 'Cambia formato carta',
+                selectGrid: 'Seleziona griglia',
+                runOcr: 'Esegui OCR',
+                exportPdf: 'Esporta PDF'
+            },
+            page: {
+                controls: 'Controlli pagina',
+                previous: 'Pagina precedente',
+                next: 'Pagina successiva',
+                add: 'Aggiungi pagina',
+                remove: 'Rimuovi pagina corrente',
+                deleteConfirm: 'Eliminare questa pagina e il suo contenuto?'
+            },
+            grid: {
+                title: 'Seleziona dimensione griglia',
+                shrinkWarning_one: 'Attenzione: passando a una griglia {{cols}} × {{rows}} verranno rimosse {{removedCells}} celle.\n\nQuesto eliminerà definitivamente {{count}} elemento dal layout.\n\nContinuare?',
+                shrinkWarning_other: 'Attenzione: passando a una griglia {{cols}} × {{rows}} verranno rimosse {{removedCells}} celle.\n\nQuesto eliminerà definitivamente {{count}} elementi dal layout.\n\nContinuare?'
+            },
+            paper: {
+                title: 'Seleziona formato carta e orientamento',
+                a4Portrait: 'A4 verticale',
+                a4Landscape: 'A4 orizzontale',
+                a3Portrait: 'A3 verticale',
+                a3Landscape: 'A3 orizzontale'
+            },
+            pdfPage: {
+                title: 'Seleziona pagina PDF',
+                selectAria: 'Seleziona pagina PDF {{page}}',
+                loading: 'Caricamento...',
+                pageLabel: 'Pagina {{page}}',
+                pageErrorLabel: 'Pagina {{page}} (errore)',
+                previewUnavailable: 'Anteprima non disponibile',
+                processingSelected: 'Elaborazione pagina selezionata...',
+                processSelectedFailed: 'Impossibile elaborare la pagina selezionata.'
+            },
+            export: {
+                title: 'Qualità esportazione',
+                sdTitle: 'SD (web, email)',
+                sdDescription: 'File più piccoli',
+                hdTitle: 'HD (stampa)',
+                hdDescription: 'File più grandi',
+                standardLabel: 'Standard (veloce)',
+                highLabel: 'Alta qualità',
+                noContent: 'Aggiungi contenuto da esportare.',
+                exporting: 'Esportazione in qualità {{quality}}...',
+                rasterizingPage: 'Rasterizzazione pagina {{current}} di {{total}}...',
+                assembling: 'Assemblaggio PDF...',
+                preparingDownload: 'Preparazione download...',
+                complete: 'Esportazione completata.',
+                failed: 'Esportazione non riuscita. Riprova.'
+            },
+            fileType: {
+                title: 'Scegli tipo di contenuto',
+                pdf: 'Documento PDF',
+                image: 'File immagine',
+                camera: 'Fotocamera'
+            },
+            camera: {
+                title: 'Scatta foto',
+                device: 'Fotocamera',
+                capturedPreview: 'Anteprima foto acquisita',
+                capture: 'Scatta',
+                usePhoto: 'Usa foto',
+                retake: 'Riscatta',
+                unavailable: 'Accesso alla fotocamera non disponibile. Usa File immagine.',
+                switchFailed: 'Cambio fotocamera non riuscito. Prova un altro dispositivo.',
+                previewNotReady: 'Anteprima fotocamera non ancora pronta. Riprova.',
+                captureFailed: 'Acquisizione foto non riuscita. Riprova.',
+                processFailed: 'Elaborazione foto non riuscita. Riprova.',
+                useFailed: 'Impossibile usare la foto acquisita. Riprova.',
+                deviceFallback: 'Fotocamera {{index}}',
+                photoTitle: 'Foto da fotocamera'
+            },
+            loading: {
+                title: 'Caricamento',
+                processing: 'Elaborazione...',
+                processingPdf: 'Elaborazione PDF...',
+                processingImage: 'Elaborazione immagine...',
+                processingPhoto: 'Elaborazione foto...'
+            },
+            filters: {
+                bitonalThreshold: 'Soglia 1-bit',
+                applyFailed: 'Applicazione filtro non riuscita. Riprova.'
+            },
+            image: {
+                processFailed: 'Elaborazione immagine non riuscita. Riprova.',
+                rotateFailed: 'Rotazione immagine non riuscita. Riprova.'
+            },
+            pdf: {
+                jsIncomplete: 'PDF.js non è stato caricato completamente. Aggiorna la pagina.',
+                jsLoadFailed: 'Libreria di elaborazione PDF non caricata. Aggiorna la pagina.',
+                processFailed: 'Elaborazione PDF non riuscita. Riprova.',
+                libraryNotLoaded: 'Libreria PDF.js non caricata. Aggiorna la pagina e riprova.'
+            },
+            ocr: {
+                noImages: 'Nessuna immagine per OCR.',
+                loadingEngine: 'Caricamento motore OCR...',
+                preparingPage: 'Preparazione OCR pagina {{current}} di {{total}}...',
+                runningCell: 'OCR pagina {{page}}, cella {{cell}}...',
+                completeNoText: 'OCR completato: nessun testo trovato.',
+                completeWithText_one: 'Testo selezionabile pronto: {{count}} riga riconosciuta.',
+                completeWithText_other: 'Testo selezionabile pronto: {{count}} righe riconosciute.',
+                failed: 'OCR non riuscito. Riprova.',
+                noExportableCells: 'Nessuna cella esportabile trovata per OCR.'
+            },
+            errors: {
+                prefix: 'Errore PDFomator: {{message}}',
+                unexpected: 'Si è verificato un errore inatteso. Aggiorna la pagina e riprova.'
+            },
+            update: {
+                available: 'App aggiornata. Nuova versione disponibile.',
+                refresh: 'Aggiorna',
+                dismiss: 'Chiudi'
+            }
+        }
+    },
+    de: {
+        translation: {
+            app: {
+                description: 'Minimale mobile PWA zum Anordnen von PDF-Seiten auf einem Blatt'
+            },
+            common: {
+                cancel: 'Abbrechen'
+            },
+            actions: {
+                changePaperSize: 'Papierformat ändern',
+                selectGrid: 'Raster auswählen',
+                runOcr: 'OCR ausführen',
+                exportPdf: 'PDF exportieren'
+            },
+            page: {
+                controls: 'Seitensteuerung',
+                previous: 'Vorherige Seite',
+                next: 'Nächste Seite',
+                add: 'Seite hinzufügen',
+                remove: 'Aktuelle Seite entfernen',
+                deleteConfirm: 'Diese Seite und ihren Inhalt löschen?'
+            },
+            grid: {
+                title: 'Rastergröße auswählen',
+                shrinkWarning_one: 'Warnung: Beim Wechsel zu einem {{cols}} × {{rows}} Raster werden {{removedCells}} Zellen entfernt.\n\nDadurch wird {{count}} Inhaltselement dauerhaft aus deinem Layout gelöscht.\n\nFortfahren?',
+                shrinkWarning_other: 'Warnung: Beim Wechsel zu einem {{cols}} × {{rows}} Raster werden {{removedCells}} Zellen entfernt.\n\nDadurch werden {{count}} Inhaltselemente dauerhaft aus deinem Layout gelöscht.\n\nFortfahren?'
+            },
+            paper: {
+                title: 'Papierformat und Ausrichtung auswählen',
+                a4Portrait: 'A4 Hochformat',
+                a4Landscape: 'A4 Querformat',
+                a3Portrait: 'A3 Hochformat',
+                a3Landscape: 'A3 Querformat'
+            },
+            pdfPage: {
+                title: 'PDF-Seite auswählen',
+                selectAria: 'PDF-Seite {{page}} auswählen',
+                loading: 'Laden...',
+                pageLabel: 'Seite {{page}}',
+                pageErrorLabel: 'Seite {{page}} (Fehler)',
+                previewUnavailable: 'Vorschau nicht verfügbar',
+                processingSelected: 'Ausgewählte Seite wird verarbeitet...',
+                processSelectedFailed: 'Ausgewählte Seite konnte nicht verarbeitet werden.'
+            },
+            export: {
+                title: 'Exportqualität',
+                sdTitle: 'SD (Web, Mail)',
+                sdDescription: 'Kleinere Dateien',
+                hdTitle: 'HD (Druck)',
+                hdDescription: 'Größere Dateien',
+                standardLabel: 'Standard (schnell)',
+                highLabel: 'Hohe Qualität',
+                noContent: 'Bitte füge Inhalt zum Exportieren hinzu.',
+                exporting: 'Export in Qualität {{quality}}...',
+                rasterizingPage: 'Seite {{current}} von {{total}} wird gerastert...',
+                assembling: 'PDF wird zusammengesetzt...',
+                preparingDownload: 'Download wird vorbereitet...',
+                complete: 'Export abgeschlossen.',
+                failed: 'Export fehlgeschlagen. Bitte erneut versuchen.'
+            },
+            fileType: {
+                title: 'Inhaltstyp auswählen',
+                pdf: 'PDF-Dokument',
+                image: 'Bilddatei',
+                camera: 'Kamera'
+            },
+            camera: {
+                title: 'Foto aufnehmen',
+                device: 'Kamera',
+                capturedPreview: 'Vorschau des aufgenommenen Fotos',
+                capture: 'Aufnehmen',
+                usePhoto: 'Foto verwenden',
+                retake: 'Neu aufnehmen',
+                unavailable: 'Kamerazugriff ist nicht verfügbar. Bitte Bilddatei verwenden.',
+                switchFailed: 'Kamerawechsel fehlgeschlagen. Bitte ein anderes Gerät versuchen.',
+                previewNotReady: 'Kameravorschau ist noch nicht bereit. Bitte erneut versuchen.',
+                captureFailed: 'Foto konnte nicht aufgenommen werden. Bitte erneut versuchen.',
+                processFailed: 'Foto konnte nicht verarbeitet werden. Bitte erneut versuchen.',
+                useFailed: 'Aufgenommenes Foto konnte nicht verwendet werden. Bitte erneut versuchen.',
+                deviceFallback: 'Kamera {{index}}',
+                photoTitle: 'Kamerafoto'
+            },
+            loading: {
+                title: 'Laden',
+                processing: 'Verarbeitung...',
+                processingPdf: 'PDF wird verarbeitet...',
+                processingImage: 'Bild wird verarbeitet...',
+                processingPhoto: 'Foto wird verarbeitet...'
+            },
+            filters: {
+                bitonalThreshold: '1-Bit-Schwelle',
+                applyFailed: 'Filter konnte nicht angewendet werden. Bitte erneut versuchen.'
+            },
+            image: {
+                processFailed: 'Bild konnte nicht verarbeitet werden. Bitte erneut versuchen.',
+                rotateFailed: 'Bild konnte nicht gedreht werden. Bitte erneut versuchen.'
+            },
+            pdf: {
+                jsIncomplete: 'PDF.js wurde nicht vollständig geladen. Bitte Seite aktualisieren.',
+                jsLoadFailed: 'PDF-Verarbeitungsbibliothek konnte nicht geladen werden. Bitte Seite aktualisieren.',
+                processFailed: 'PDF konnte nicht verarbeitet werden. Bitte erneut versuchen.',
+                libraryNotLoaded: 'PDF.js-Bibliothek nicht geladen. Bitte Seite aktualisieren und erneut versuchen.'
+            },
+            ocr: {
+                noImages: 'Keine Bilder für OCR.',
+                loadingEngine: 'OCR-Engine wird geladen...',
+                preparingPage: 'OCR für Seite {{current}} von {{total}} wird vorbereitet...',
+                runningCell: 'OCR Seite {{page}}, Zelle {{cell}}...',
+                completeNoText: 'OCR abgeschlossen: kein Text gefunden.',
+                completeWithText_one: 'Auswählbarer Text bereit: {{count}} Zeile erkannt.',
+                completeWithText_other: 'Auswählbarer Text bereit: {{count}} Zeilen erkannt.',
+                failed: 'OCR fehlgeschlagen. Bitte erneut versuchen.',
+                noExportableCells: 'Keine exportierbaren Zellen für OCR gefunden.'
+            },
+            errors: {
+                prefix: 'PDFomator-Fehler: {{message}}',
+                unexpected: 'Ein unerwarteter Fehler ist aufgetreten. Bitte Seite aktualisieren und erneut versuchen.'
+            },
+            update: {
+                available: 'App aktualisiert. Neue Version verfügbar.',
+                refresh: 'Aktualisieren',
+                dismiss: 'Schließen'
+            }
+        }
+    },
+    es: {
+        translation: {
+            app: {
+                description: 'PWA móvil mínima para colocar páginas PDF en una hoja'
+            },
+            common: {
+                cancel: 'Cancelar'
+            },
+            actions: {
+                changePaperSize: 'Cambiar tamaño de papel',
+                selectGrid: 'Seleccionar cuadrícula',
+                runOcr: 'Ejecutar OCR',
+                exportPdf: 'Exportar PDF'
+            },
+            page: {
+                controls: 'Controles de página',
+                previous: 'Página anterior',
+                next: 'Página siguiente',
+                add: 'Añadir página',
+                remove: 'Eliminar página actual',
+                deleteConfirm: '¿Eliminar esta página y su contenido?'
+            },
+            grid: {
+                title: 'Seleccionar tamaño de cuadrícula',
+                shrinkWarning_one: 'Aviso: cambiar a una cuadrícula {{cols}} × {{rows}} eliminará {{removedCells}} celdas.\n\nEsto eliminará permanentemente {{count}} elemento de contenido del diseño.\n\n¿Continuar?',
+                shrinkWarning_other: 'Aviso: cambiar a una cuadrícula {{cols}} × {{rows}} eliminará {{removedCells}} celdas.\n\nEsto eliminará permanentemente {{count}} elementos de contenido del diseño.\n\n¿Continuar?'
+            },
+            paper: {
+                title: 'Seleccionar tamaño y orientación del papel',
+                a4Portrait: 'A4 vertical',
+                a4Landscape: 'A4 horizontal',
+                a3Portrait: 'A3 vertical',
+                a3Landscape: 'A3 horizontal'
+            },
+            pdfPage: {
+                title: 'Seleccionar página PDF',
+                selectAria: 'Seleccionar página PDF {{page}}',
+                loading: 'Cargando...',
+                pageLabel: 'Página {{page}}',
+                pageErrorLabel: 'Página {{page}} (error)',
+                previewUnavailable: 'Vista previa no disponible',
+                processingSelected: 'Procesando página seleccionada...',
+                processSelectedFailed: 'No se pudo procesar la página seleccionada.'
+            },
+            export: {
+                title: 'Calidad de exportación',
+                sdTitle: 'SD (web, correo)',
+                sdDescription: 'Archivos más pequeños',
+                hdTitle: 'HD (impresión)',
+                hdDescription: 'Archivos más grandes',
+                standardLabel: 'Estándar (rápido)',
+                highLabel: 'Alta calidad',
+                noContent: 'Añade contenido para exportar.',
+                exporting: 'Exportando en calidad {{quality}}...',
+                rasterizingPage: 'Rasterizando página {{current}} de {{total}}...',
+                assembling: 'Ensamblando PDF...',
+                preparingDownload: 'Preparando descarga...',
+                complete: 'Exportación completada.',
+                failed: 'La exportación falló. Inténtalo de nuevo.'
+            },
+            fileType: {
+                title: 'Elegir tipo de contenido',
+                pdf: 'Documento PDF',
+                image: 'Archivo de imagen',
+                camera: 'Cámara'
+            },
+            camera: {
+                title: 'Tomar foto',
+                device: 'Cámara',
+                capturedPreview: 'Vista previa de la foto capturada',
+                capture: 'Capturar',
+                usePhoto: 'Usar foto',
+                retake: 'Repetir',
+                unavailable: 'El acceso a la cámara no está disponible. Usa Archivo de imagen.',
+                switchFailed: 'No se pudo cambiar de cámara. Prueba otro dispositivo.',
+                previewNotReady: 'La vista previa de la cámara aún no está lista. Inténtalo de nuevo.',
+                captureFailed: 'No se pudo capturar la foto. Inténtalo de nuevo.',
+                processFailed: 'No se pudo procesar la foto. Inténtalo de nuevo.',
+                useFailed: 'No se pudo usar la foto capturada. Inténtalo de nuevo.',
+                deviceFallback: 'Cámara {{index}}',
+                photoTitle: 'Foto de cámara'
+            },
+            loading: {
+                title: 'Cargando',
+                processing: 'Procesando...',
+                processingPdf: 'Procesando PDF...',
+                processingImage: 'Procesando imagen...',
+                processingPhoto: 'Procesando foto...'
+            },
+            filters: {
+                bitonalThreshold: 'Umbral de 1 bit',
+                applyFailed: 'No se pudo aplicar el filtro. Inténtalo de nuevo.'
+            },
+            image: {
+                processFailed: 'No se pudo procesar la imagen. Inténtalo de nuevo.',
+                rotateFailed: 'No se pudo girar la imagen. Inténtalo de nuevo.'
+            },
+            pdf: {
+                jsIncomplete: 'PDF.js no se cargó completamente. Actualiza la página.',
+                jsLoadFailed: 'No se pudo cargar la biblioteca de procesamiento PDF. Actualiza la página.',
+                processFailed: 'No se pudo procesar el PDF. Inténtalo de nuevo.',
+                libraryNotLoaded: 'La biblioteca PDF.js no está cargada. Actualiza la página e inténtalo de nuevo.'
+            },
+            ocr: {
+                noImages: 'No hay imágenes para OCR.',
+                loadingEngine: 'Cargando motor OCR...',
+                preparingPage: 'Preparando OCR página {{current}} de {{total}}...',
+                runningCell: 'OCR página {{page}}, celda {{cell}}...',
+                completeNoText: 'OCR completado: no se encontró texto.',
+                completeWithText_one: 'Texto seleccionable listo: {{count}} línea reconocida.',
+                completeWithText_other: 'Texto seleccionable listo: {{count}} líneas reconocidas.',
+                failed: 'OCR falló. Inténtalo de nuevo.',
+                noExportableCells: 'No se encontraron celdas exportables para OCR.'
+            },
+            errors: {
+                prefix: 'Error de PDFomator: {{message}}',
+                unexpected: 'Se produjo un error inesperado. Actualiza la página e inténtalo de nuevo.'
+            },
+            update: {
+                available: 'App actualizada. Nueva versión disponible.',
+                refresh: 'Actualizar',
+                dismiss: 'Cerrar'
+            }
+        }
+    },
+    fr: {
+        translation: {
+            app: {
+                description: 'PWA mobile minimale pour placer des pages PDF sur une feuille'
+            },
+            common: {
+                cancel: 'Annuler'
+            },
+            actions: {
+                changePaperSize: 'Changer le format papier',
+                selectGrid: 'Sélectionner la grille',
+                runOcr: 'Lancer l’OCR',
+                exportPdf: 'Exporter le PDF'
+            },
+            page: {
+                controls: 'Commandes de page',
+                previous: 'Page précédente',
+                next: 'Page suivante',
+                add: 'Ajouter une page',
+                remove: 'Supprimer la page actuelle',
+                deleteConfirm: 'Supprimer cette page et son contenu ?'
+            },
+            grid: {
+                title: 'Sélectionner la taille de grille',
+                shrinkWarning_one: 'Attention : passer à une grille {{cols}} × {{rows}} supprimera {{removedCells}} cellules.\n\nCela supprimera définitivement {{count}} élément de contenu de votre mise en page.\n\nContinuer ?',
+                shrinkWarning_other: 'Attention : passer à une grille {{cols}} × {{rows}} supprimera {{removedCells}} cellules.\n\nCela supprimera définitivement {{count}} éléments de contenu de votre mise en page.\n\nContinuer ?'
+            },
+            paper: {
+                title: 'Sélectionner le format papier et l’orientation',
+                a4Portrait: 'A4 portrait',
+                a4Landscape: 'A4 paysage',
+                a3Portrait: 'A3 portrait',
+                a3Landscape: 'A3 paysage'
+            },
+            pdfPage: {
+                title: 'Sélectionner une page PDF',
+                selectAria: 'Sélectionner la page PDF {{page}}',
+                loading: 'Chargement...',
+                pageLabel: 'Page {{page}}',
+                pageErrorLabel: 'Page {{page}} (erreur)',
+                previewUnavailable: 'Aperçu indisponible',
+                processingSelected: 'Traitement de la page sélectionnée...',
+                processSelectedFailed: 'Impossible de traiter la page sélectionnée.'
+            },
+            export: {
+                title: 'Qualité d’export',
+                sdTitle: 'SD (web, mail)',
+                sdDescription: 'Fichiers plus petits',
+                hdTitle: 'HD (impression)',
+                hdDescription: 'Fichiers plus grands',
+                standardLabel: 'Standard (rapide)',
+                highLabel: 'Haute qualité',
+                noContent: 'Ajoutez du contenu à exporter.',
+                exporting: 'Export en qualité {{quality}}...',
+                rasterizingPage: 'Rasterisation de la page {{current}} sur {{total}}...',
+                assembling: 'Assemblage du PDF...',
+                preparingDownload: 'Préparation du téléchargement...',
+                complete: 'Export terminé.',
+                failed: 'Échec de l’export. Veuillez réessayer.'
+            },
+            fileType: {
+                title: 'Choisir le type de contenu',
+                pdf: 'Document PDF',
+                image: 'Fichier image',
+                camera: 'Appareil photo'
+            },
+            camera: {
+                title: 'Prendre une photo',
+                device: 'Appareil photo',
+                capturedPreview: 'Aperçu de la photo capturée',
+                capture: 'Capturer',
+                usePhoto: 'Utiliser la photo',
+                retake: 'Reprendre',
+                unavailable: 'L’accès à l’appareil photo est indisponible. Utilisez Fichier image.',
+                switchFailed: 'Impossible de changer d’appareil photo. Essayez un autre appareil.',
+                previewNotReady: 'L’aperçu de l’appareil photo n’est pas encore prêt. Réessayez.',
+                captureFailed: 'Impossible de capturer la photo. Réessayez.',
+                processFailed: 'Impossible de traiter la photo. Réessayez.',
+                useFailed: 'Impossible d’utiliser la photo capturée. Réessayez.',
+                deviceFallback: 'Appareil photo {{index}}',
+                photoTitle: 'Photo appareil'
+            },
+            loading: {
+                title: 'Chargement',
+                processing: 'Traitement...',
+                processingPdf: 'Traitement du PDF...',
+                processingImage: 'Traitement de l’image...',
+                processingPhoto: 'Traitement de la photo...'
+            },
+            filters: {
+                bitonalThreshold: 'Seuil 1 bit',
+                applyFailed: 'Impossible d’appliquer le filtre. Réessayez.'
+            },
+            image: {
+                processFailed: 'Impossible de traiter l’image. Réessayez.',
+                rotateFailed: 'Impossible de faire pivoter l’image. Réessayez.'
+            },
+            pdf: {
+                jsIncomplete: 'PDF.js n’a pas été chargé complètement. Actualisez la page.',
+                jsLoadFailed: 'La bibliothèque de traitement PDF n’a pas pu être chargée. Actualisez la page.',
+                processFailed: 'Impossible de traiter le PDF. Réessayez.',
+                libraryNotLoaded: 'La bibliothèque PDF.js n’est pas chargée. Actualisez la page et réessayez.'
+            },
+            ocr: {
+                noImages: 'Aucune image pour l’OCR.',
+                loadingEngine: 'Chargement du moteur OCR...',
+                preparingPage: 'Préparation OCR page {{current}} sur {{total}}...',
+                runningCell: 'OCR page {{page}}, cellule {{cell}}...',
+                completeNoText: 'OCR terminé : aucun texte trouvé.',
+                completeWithText_one: 'Texte sélectionnable prêt : {{count}} ligne reconnue.',
+                completeWithText_other: 'Texte sélectionnable prêt : {{count}} lignes reconnues.',
+                failed: 'Échec de l’OCR. Réessayez.',
+                noExportableCells: 'Aucune cellule exportable trouvée pour l’OCR.'
+            },
+            errors: {
+                prefix: 'Erreur PDFomator : {{message}}',
+                unexpected: 'Une erreur inattendue est survenue. Actualisez la page et réessayez.'
+            },
+            update: {
+                available: 'App mise à jour. Nouvelle version disponible.',
+                refresh: 'Actualiser',
+                dismiss: 'Fermer'
+            }
+        }
+    }
+};
+
+function normalizeLanguage(language) {
+    if (!language) return '';
+
+    return String(language).toLowerCase().split('-')[0];
+}
+
+function detectBrowserLanguage() {
+    const candidates = navigator.languages?.length ? navigator.languages : [navigator.language];
+
+    for (const language of candidates) {
+        const normalizedLanguage = normalizeLanguage(language);
+        if (SUPPORTED_LANGUAGES.includes(normalizedLanguage)) {
+            return normalizedLanguage;
+        }
+    }
+
+    return FALLBACK_LANGUAGE;
+}
+
+async function setupI18n() {
+    const language = detectBrowserLanguage();
+
+    if (!window.i18next?.init) {
+        console.warn('[i18n] i18next unavailable, using English fallback strings');
+        document.documentElement.lang = FALLBACK_LANGUAGE;
+        return;
+    }
+
+    try {
+        await window.i18next.init({
+            resources: I18N_RESOURCES,
+            lng: language,
+            fallbackLng: FALLBACK_LANGUAGE,
+            supportedLngs: SUPPORTED_LANGUAGES,
+            interpolation: {
+                escapeValue: false
+            }
+        });
+
+        document.documentElement.lang = window.i18next.resolvedLanguage || language;
+    } catch (error) {
+        console.warn('[i18n] Failed to initialize i18next, using English fallback strings:', error);
+        document.documentElement.lang = FALLBACK_LANGUAGE;
+    }
+}
+
+function getNestedTranslationValue(key, language = FALLBACK_LANGUAGE) {
+    return key.split('.').reduce((value, part) => (
+        value && typeof value === 'object' ? value[part] : undefined
+    ), I18N_RESOURCES[language]?.translation);
+}
+
+function interpolateTranslation(template, options = {}) {
+    return String(template).replace(/\{\{\s*(\w+)\s*\}\}/g, (_, name) => (
+        options[name] === undefined || options[name] === null ? '' : String(options[name])
+    ));
+}
+
+function fallbackTranslate(key, options = {}) {
+    const pluralKey = typeof options.count === 'number'
+        ? `${key}_${options.count === 1 ? 'one' : 'other'}`
+        : key;
+    const template = getNestedTranslationValue(pluralKey)
+        ?? getNestedTranslationValue(key)
+        ?? key;
+
+    return interpolateTranslation(template, options);
+}
+
+function t(key, options = {}) {
+    if (window.i18next?.isInitialized) {
+        return window.i18next.t(key, options);
+    }
+
+    return fallbackTranslate(key, options);
+}
+
+function getTranslatableElements(root, selector) {
+    const elements = [];
+
+    if (root?.matches?.(selector)) {
+        elements.push(root);
+    }
+
+    if (root?.querySelectorAll) {
+        elements.push(...root.querySelectorAll(selector));
+    }
+
+    return elements;
+}
+
+function applyDomTranslations(root = document) {
+    getTranslatableElements(root, '[data-i18n]').forEach(element => {
+        element.textContent = t(element.dataset.i18n);
+    });
+
+    getTranslatableElements(root, '[data-i18n-attr]').forEach(element => {
+        const definitions = element.dataset.i18nAttr.split(';').map(item => item.trim()).filter(Boolean);
+
+        definitions.forEach(definition => {
+            const separatorIndex = definition.indexOf(':');
+            if (separatorIndex === -1) return;
+
+            const attributeName = definition.slice(0, separatorIndex).trim();
+            const key = definition.slice(separatorIndex + 1).trim();
+            if (!attributeName || !key) return;
+
+            element.setAttribute(attributeName, t(key));
+        });
+    });
+}
+
+function getExportQualityLabel(quality) {
+    return quality === 'HD' ? t('export.highLabel') : t('export.standardLabel');
+}
+
 // Application state
 function createEmptyPageState(template = null) {
     const sourceSheet = template?.sheet || {
@@ -210,7 +956,7 @@ function removeCurrentPage() {
     }
 
     const currentPage = getCurrentPageState();
-    if (pageHasContent(currentPage) && !window.confirm('Delete this page and its contents?')) {
+    if (pageHasContent(currentPage) && !window.confirm(t('page.deleteConfirm'))) {
         return;
     }
 
@@ -304,6 +1050,19 @@ const CONFIG = {
     // Image normalization
     image: {
         maxRasterDimension: 2800    // Downscale oversized photos for faster filtering/export
+    },
+
+    // Local OCR experiment
+    ocr: {
+        moduleUrl: './vendor/paddleocr/paddleocr-browser.mjs',
+        wasmPaths: '/vendor/paddleocr/',
+        textDetectionModelName: 'PP-OCRv6_small_det',
+        textDetectionModelUrl: '/vendor/paddleocr/models/PP-OCRv6_small_det_onnx_infer.tar',
+        textRecognitionModelName: 'PP-OCRv6_small_rec',
+        textRecognitionModelUrl: '/vendor/paddleocr/models/PP-OCRv6_small_rec_onnx_infer.tar',
+        rasterScale: 3,
+        minConfidence: 0.35,
+        textRecognitionBatchSize: 4
     }
 };
 
@@ -311,13 +1070,11 @@ const CONFIG = {
 const EXPORT_QUALITY = {
     SD: { 
         scale: 4.0,        // Raster scale in px/mm, tuned for the current export pipeline
-        jpegQuality: 0.8,
-        label: 'Standard (Fast)'
+        jpegQuality: 0.8
     },
     HD: { 
         scale: 6.0,
-        jpegQuality: 0.9,
-        label: 'High Quality'
+        jpegQuality: 0.9
     }
 };
 
@@ -425,6 +1182,13 @@ const filterEngineState = {
     mode: 'pending',
     processor: null,
     unavailableReason: ''
+};
+const ocrState = {
+    enginePromise: null,
+    busy: false,
+    status: 'idle',
+    lastSummary: null,
+    lastError: ''
 };
 const bitonalPopoverState = {
     cellIndex: null,
@@ -691,19 +1455,22 @@ document.addEventListener('DOMContentLoaded', init);
 // Global error boundary
 window.addEventListener('error', (event) => {
     hideLoading(); // Hide any loading states
-    alert('An unexpected error occurred. Please refresh the page and try again.');
+    alert(t('errors.unexpected'));
 });
 
 // Global promise rejection handler
 window.addEventListener('unhandledrejection', (event) => {
     hideLoading(); // Hide any loading states
-    alert('An unexpected error occurred. Please refresh the page and try again.');
+    alert(t('errors.unexpected'));
     event.preventDefault(); // Prevent the default browser behavior
 });
 
 async function init() {
     // Cache DOM elements
     cacheElements();
+
+    await setupI18n();
+    applyDomTranslations();
     
     // Register Service Worker for PWA functionality
     registerServiceWorker();
@@ -714,6 +1481,7 @@ async function init() {
     
     // Setup event listeners
     setupEventListeners();
+    updateOcrButtonState();
 
     // Initialize the current page view
     renderCurrentPage();
@@ -722,17 +1490,27 @@ async function init() {
 function registerServiceWorker() {
     if ('serviceWorker' in navigator) {
         let hasReloadedForServiceWorker = false;
+        let shouldReloadForLocalServiceWorkerUpdate = false;
         const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
         navigator.serviceWorker.register('./sw.js')
             .then(registration => {
+                if (!registration) {
+                    console.warn('[App] Service Worker registration unavailable');
+                    return;
+                }
+
                 console.log('[App] Service Worker registered successfully:', registration.scope);
                 
                 // Get and display version from service worker
                 getServiceWorkerVersion(registration);
 
                 // If an update is already waiting, offer it once.
-                if (registration.waiting && !isLocalhost) {
+                if (registration.waiting && isLocalhost) {
+                    console.log('[App] Waiting Service Worker found on localhost, applying update');
+                    shouldReloadForLocalServiceWorkerUpdate = true;
+                    registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+                } else if (registration.waiting) {
                     console.log('[App] Waiting Service Worker found');
                     showUpdateNotification(registration);
                 }
@@ -746,9 +1524,15 @@ function registerServiceWorker() {
                         newWorker.addEventListener('statechange', () => {
                             console.log('[App] New Service Worker state:', newWorker.state);
                             
-                            if (newWorker.state === 'installed' && navigator.serviceWorker.controller && !isLocalhost) {
-                                console.log('[App] New version available, waiting for user refresh');
-                                showUpdateNotification(registration);
+                            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                if (isLocalhost) {
+                                    console.log('[App] New localhost Service Worker installed, applying update');
+                                    shouldReloadForLocalServiceWorkerUpdate = true;
+                                    (registration.waiting || newWorker).postMessage({ type: 'SKIP_WAITING' });
+                                } else {
+                                    console.log('[App] New version available, waiting for user refresh');
+                                    showUpdateNotification(registration);
+                                }
                             }
                         });
                     }
@@ -774,6 +1558,12 @@ function registerServiceWorker() {
 
             if (isLocalhost) {
                 console.log('[App] Service Worker controller changed on localhost');
+                if (shouldReloadForLocalServiceWorkerUpdate) {
+                    console.log('[App] Reloading localhost after Service Worker update');
+                    window.location.reload();
+                    return;
+                }
+
                 getServiceWorkerVersion();
                 return;
             }
@@ -792,16 +1582,30 @@ function showUpdateNotification(registration) {
         return;
     }
 
-    // Create a simple update notification
     const notification = document.createElement('div');
     notification.className = 'update-notification';
-    notification.innerHTML = `
-        <div class="update-content">
-            <span>🔄 App updated! New version available.</span>
-            <button id="updateBtn" class="update-btn">Refresh</button>
-            <button id="dismissBtn" class="dismiss-btn">×</button>
-        </div>
-    `;
+
+    const content = document.createElement('div');
+    content.className = 'update-content';
+
+    const message = document.createElement('span');
+    message.textContent = `🔄 ${t('update.available')}`;
+
+    const updateButton = document.createElement('button');
+    updateButton.id = 'updateBtn';
+    updateButton.className = 'update-btn';
+    updateButton.textContent = t('update.refresh');
+
+    const dismissButton = document.createElement('button');
+    dismissButton.id = 'dismissBtn';
+    dismissButton.className = 'dismiss-btn';
+    dismissButton.textContent = '×';
+    dismissButton.setAttribute('aria-label', t('update.dismiss'));
+
+    content.appendChild(message);
+    content.appendChild(updateButton);
+    content.appendChild(dismissButton);
+    notification.appendChild(content);
     
     document.body.appendChild(notification);
     
@@ -813,7 +1617,7 @@ function showUpdateNotification(registration) {
     }, 10000);
     
     // Handle update button click
-    document.getElementById('updateBtn').addEventListener('click', () => {
+    updateButton.addEventListener('click', () => {
         clearTimeout(autoDismiss);
         if (registration?.waiting) {
             registration.waiting.postMessage({ type: 'SKIP_WAITING' });
@@ -822,7 +1626,7 @@ function showUpdateNotification(registration) {
     });
     
     // Handle dismiss button click
-    document.getElementById('dismissBtn').addEventListener('click', () => {
+    dismissButton.addEventListener('click', () => {
         clearTimeout(autoDismiss);
         notification.remove();
     });
@@ -914,6 +1718,7 @@ function cacheElements() {
         mainContent: document.querySelector('.main-content'),
         sizeBtn: document.getElementById('sizeBtn'),
         gridBtn: document.getElementById('gridBtn'),
+        ocrBtn: document.getElementById('ocrBtn'),
         exportBtn: document.getElementById('exportBtn'),
         pdfInput: document.getElementById('pdfInput'),
         imageInput: document.getElementById('imageInput'),
@@ -952,13 +1757,13 @@ function cacheElements() {
 }
 
 function showError(message) {
-    alert(`PDFomator Error: ${message}`);
+    alert(t('errors.prefix', { message }));
 }
 
 async function setupPDFWorker() {
     try {
         if (!pdfjsLib?.getDocument || !pdfjsLib?.GlobalWorkerOptions) {
-            throw new Error('PDF.js failed to load completely. Please check your internet connection and refresh the page.');
+            throw new Error('PDF.js failed to load completely');
         }
 
         pdfjsLib.GlobalWorkerOptions.workerSrc = CONFIG.pdfWorkerUrl;
@@ -966,7 +1771,7 @@ async function setupPDFWorker() {
         
     } catch (error) {
         // Show user-friendly error
-        showError('PDF processing library failed to load. Please check your internet connection and refresh the page.');
+        showError(t('pdf.jsLoadFailed'));
     }
 }
 
@@ -994,6 +1799,7 @@ function setupEventListeners() {
     // FAB button handlers
     elements.sizeBtn.addEventListener('click', handleSizePicker);
     elements.gridBtn.addEventListener('click', handleGridPicker);
+    elements.ocrBtn.addEventListener('click', handleRunOCR);
     elements.exportBtn.addEventListener('click', handleExport);
     elements.prevPageBtn.addEventListener('click', goToPreviousPage);
     elements.nextPageBtn.addEventListener('click', goToNextPage);
@@ -1111,7 +1917,7 @@ function handleGridPicker() {
 
 async function handleExport() {
     if (!appState.pages.some(pageHasExportableContent)) {
-        alert('Please add some content to export!');
+        alert(t('export.noContent'));
         return;
     }
     
@@ -1125,12 +1931,12 @@ async function handlePDFSelection(e) {
     if (files.length === 0 || targetCell === null) return;
     
     const file = files[0]; // Single file selection
-    showLoading('Processing PDF...');
+    showLoading(t('loading.processingPdf'));
     
     try {
         await processPDFFileForCell(file, targetCell);
     } catch (error) {
-        alert('Failed to process PDF. Please try again.');
+        alert(t('pdf.processFailed'));
     } finally {
         hideLoading();
         elements.pdfInput.value = '';
@@ -1142,11 +1948,11 @@ async function handlePDFSelection(e) {
 }
 
 async function handleImageSelection(e) {
-    await handleImageLikeSelection(e.target, 'Processing image...', 'Failed to process image. Please try again.');
+    await handleImageLikeSelection(e.target, t('loading.processingImage'), t('image.processFailed'));
 }
 
 async function handleCameraSelection(e) {
-    await handleImageLikeSelection(e.target, 'Processing photo...', 'Failed to process photo. Please try again.');
+    await handleImageLikeSelection(e.target, t('loading.processingPhoto'), t('camera.processFailed'));
 }
 
 async function handleImageLikeSelection(inputElement, loadingMessage, errorMessage) {
@@ -1186,7 +1992,7 @@ function handleCameraOption() {
 
 async function processPDFFileForCell(file, cellIndex) {
     if (!pdfjsLib?.getDocument) {
-        throw new Error('PDF.js library not loaded. Please refresh the page and try again.');
+        throw new Error('PDF.js library not loaded');
     }
     
     const arrayBuffer = await file.arrayBuffer();
@@ -1466,7 +2272,7 @@ function createVirtualPDFPageSlot(session, pageNum) {
     slot.dataset.pageNum = pageNum;
     slot.tabIndex = 0;
     slot.setAttribute('role', 'button');
-    slot.setAttribute('aria-label', `Select PDF page ${pageNum}`);
+    slot.setAttribute('aria-label', t('pdfPage.selectAria', { page: pageNum }));
 
     slot.addEventListener('click', () => {
         selectPDFPageFromSession(session, pageNum);
@@ -1479,7 +2285,7 @@ function createVirtualPDFPageSlot(session, pageNum) {
         }
     });
 
-    renderPDFPageSlotPlaceholder(slot, pageNum, 'Loading...');
+    renderPDFPageSlotPlaceholder(slot, pageNum, t('pdfPage.loading'));
     return slot;
 }
 
@@ -1504,7 +2310,9 @@ function renderPDFPageSlotPlaceholder(slot, pageNum, message, isError = false) {
 
     const label = document.createElement('div');
     label.className = 'page-label';
-    label.textContent = isError ? `Page ${pageNum} (Error)` : `Page ${pageNum}`;
+    label.textContent = isError
+        ? t('pdfPage.pageErrorLabel', { page: pageNum })
+        : t('pdfPage.pageLabel', { page: pageNum });
 
     slot.appendChild(placeholder);
     slot.appendChild(label);
@@ -1516,7 +2324,7 @@ function renderPDFPageSlotCanvas(slot, pageNum, canvas) {
 
     const label = document.createElement('div');
     label.className = 'page-label';
-    label.textContent = `Page ${pageNum}`;
+    label.textContent = t('pdfPage.pageLabel', { page: pageNum });
 
     slot.appendChild(canvas);
     slot.appendChild(label);
@@ -1528,7 +2336,7 @@ async function renderPDFPageSlotThumbnail(session, pageNum, slot) {
     if (cachedThumbnail) {
         touchPDFThumbnailCacheEntry(session, pageNum);
         if (cachedThumbnail.error) {
-            renderPDFPageSlotPlaceholder(slot, pageNum, 'Preview unavailable', true);
+            renderPDFPageSlotPlaceholder(slot, pageNum, t('pdfPage.previewUnavailable'), true);
         } else {
             renderPDFPageSlotCanvas(slot, pageNum, cachedThumbnail.canvas);
         }
@@ -1563,7 +2371,7 @@ async function renderPDFPageSlotThumbnail(session, pageNum, slot) {
 
             const currentSlot = session.renderedSlots.get(pageNum);
             if (currentSlot?.isConnected) {
-                renderPDFPageSlotPlaceholder(currentSlot, pageNum, 'Preview unavailable', true);
+                renderPDFPageSlotPlaceholder(currentSlot, pageNum, t('pdfPage.previewUnavailable'), true);
             }
         } finally {
             session.pendingRenders.delete(pageNum);
@@ -1615,7 +2423,7 @@ function selectPDFPageFromSession(session, pageNum) {
     const { pdf, fileName, pageIndex, cellIndex } = session;
     cancelPDFPageSelectorGeneration();
     overlayManager.hide(elements.pageSelector);
-    showLoading('Processing selected page...');
+    showLoading(t('pdfPage.processingSelected'));
     processSelectedPage(pdf, pageNum, fileName, pageIndex, cellIndex);
 }
 
@@ -1664,7 +2472,7 @@ async function processSelectedPage(pdf, pageNum, fileName, pageIndex, cellIndex)
         appState.currentPageIndex = pageIndex;
         addToSpecificCell(bitmap, `${fileName} p${pageNum}`, cellIndex);
     } catch (error) {
-        alert('Failed to process selected page.');
+        alert(t('pdfPage.processSelectedFailed'));
     } finally {
         appState.currentPageIndex = originalPageIndex;
         renderCurrentPage();
@@ -1761,7 +2569,7 @@ async function cycleCellFilter(cellIndex) {
         await applyCellFilter(cellIndex, nextFilter.key);
     } catch (error) {
         console.error('Failed to apply filter:', error);
-        alert('Failed to apply filter. Please try again.');
+        alert(t('filters.applyFailed'));
     }
 }
 
@@ -1831,7 +2639,7 @@ function rotateImage(cellIndex) {
         renderSVGSheet();
     }).catch(error => {
         console.error('Failed to rotate image:', error);
-        alert('Failed to rotate image. Please try again.');
+        alert(t('image.rotateFailed'));
     });
 }
 
@@ -3352,10 +4160,12 @@ function selectGrid(cols, rows) {
         
         if (hasDataInRemovedCells) {
             const lostContentCount = cellsToRemove.filter(isCellImageContent).length;
-            const confirmMessage = 
-                `Warning: Changing to a ${cols} × ${rows} grid will remove ${currentTotalCells - newTotalCells} cells.\n\n` +
-                `This will permanently delete ${lostContentCount} piece(s) of content from your layout.\n\n` +
-                `Are you sure you want to continue?`;
+            const confirmMessage = t('grid.shrinkWarning', {
+                cols,
+                rows,
+                removedCells: currentTotalCells - newTotalCells,
+                count: lostContentCount
+            });
             
             const userConfirmed = confirm(confirmMessage);
             if (!userConfirmed) {
@@ -3468,7 +4278,7 @@ async function showCameraOverlay() {
         await startCameraStream(cameraState.selectedDeviceId);
     } catch (error) {
         hideCameraOverlay();
-        alert('Camera access is unavailable. Please use Image File instead.');
+        alert(t('camera.unavailable'));
     }
 }
 
@@ -3535,7 +4345,7 @@ async function refreshCameraDevices() {
     const deviceOptions = videoDevices.map((device, index) => {
         const option = document.createElement('option');
         option.value = device.deviceId;
-        option.textContent = device.label || `Camera ${index + 1}`;
+        option.textContent = device.label || t('camera.deviceFallback', { index: index + 1 });
         return option;
     });
 
@@ -3571,14 +4381,14 @@ async function handleCameraDeviceChange() {
     try {
         await startCameraStream(nextDeviceId);
     } catch (error) {
-        alert('Failed to switch camera. Please try another device.');
+        alert(t('camera.switchFailed'));
     }
 }
 
 function captureCameraFrame() {
     const video = elements.cameraVideo;
     if (!video.videoWidth || !video.videoHeight) {
-        alert('Camera preview is not ready yet. Please try again.');
+        alert(t('camera.previewNotReady'));
         return;
     }
 
@@ -3588,7 +4398,7 @@ function captureCameraFrame() {
     canvas.height = video.videoHeight;
 
     if (!ctx) {
-        alert('Failed to capture photo. Please try again.');
+        alert(t('camera.captureFailed'));
         return;
     }
 
@@ -3622,13 +4432,13 @@ async function useCapturedPhoto() {
     }
 
     hideCameraOverlay();
-    showLoading('Processing photo...');
+    showLoading(t('loading.processingPhoto'));
 
     try {
         const persistentImg = await createPersistentImageFromDataUrl(dataUrl);
-        addToSpecificCell(persistentImg, 'Camera photo', targetCell);
+        addToSpecificCell(persistentImg, t('camera.photoTitle'), targetCell);
     } catch (error) {
-        alert('Failed to use captured photo. Please try again.');
+        alert(t('camera.useFailed'));
     } finally {
         hideLoading();
         if (currentTargetCell === targetCell) {
@@ -3646,7 +4456,7 @@ function hidePageSelector() {
     overlayManager.hide(elements.pageSelector);
 }
 
-function showLoading(message = 'Loading...') {
+function showLoading(message = t('loading.title')) {
     if (!elements.loading) return; // Safety check for early calls
     overlayManager.show(elements.loading, () => {
         const loadingText = elements.loading.querySelector('p');
@@ -3671,7 +4481,10 @@ function showStatusToast(message, duration = 2000) {
 
     const toast = document.createElement('div');
     toast.className = 'status-toast';
-    toast.innerHTML = `<div class="status-toast-content">${message}</div>`;
+    const toastContent = document.createElement('div');
+    toastContent.className = 'status-toast-content';
+    toastContent.textContent = message;
+    toast.appendChild(toastContent);
     document.body.appendChild(toast);
     activeStatusToast = toast;
 
@@ -3834,20 +4647,240 @@ async function openBitonalPopoverForCell(cellIndex, anchorRect) {
     showBitonalPopover(cellIndex, anchorRect);
 }
 
+// OCR functionality
+function updateOcrButtonState() {
+    if (!elements.ocrBtn) return;
+
+    elements.ocrBtn.disabled = ocrState.busy;
+    elements.ocrBtn.classList.toggle('is-busy', ocrState.busy);
+    elements.ocrBtn.classList.toggle('is-ready', ocrState.status === 'ready');
+}
+
+async function getPaddleOcrEngine() {
+    if (!ocrState.enginePromise) {
+        ocrState.enginePromise = (async () => {
+            const { PaddleOCR } = await import(CONFIG.ocr.moduleUrl);
+            const ocr = await PaddleOCR.create({
+                textDetectionModelName: CONFIG.ocr.textDetectionModelName,
+                textDetectionModelAsset: {
+                    url: CONFIG.ocr.textDetectionModelUrl
+                },
+                textRecognitionModelName: CONFIG.ocr.textRecognitionModelName,
+                textRecognitionModelAsset: {
+                    url: CONFIG.ocr.textRecognitionModelUrl
+                },
+                textRecognitionBatchSize: CONFIG.ocr.textRecognitionBatchSize,
+                worker: true,
+                ortOptions: {
+                    backend: 'auto',
+                    wasmPaths: CONFIG.ocr.wasmPaths,
+                    numThreads: 1,
+                    simd: true
+                }
+            });
+
+            ocrState.lastSummary = ocr.getInitializationSummary?.() || null;
+            return ocr;
+        })().catch(error => {
+            ocrState.enginePromise = null;
+            throw error;
+        });
+    }
+
+    return ocrState.enginePromise;
+}
+
+function getCellOcrSignature(cellIndex) {
+    const cellData = layoutState.cells[cellIndex];
+    const imageBounds = getActualImageBounds(cellIndex);
+
+    if (!cellData?.image || !imageBounds) {
+        return '';
+    }
+
+    return JSON.stringify({
+        imageWidth: cellData.image.width,
+        imageHeight: cellData.image.height,
+        imageOperationId: cellData.imageOperationId || 0,
+        fillMode: cellData.fillMode || 'contain',
+        transform: normalizeNumericObject(cellData.transform),
+        crop: normalizeNumericObject(normalizeCellCrop(cellData.crop)),
+        filter: cellData.filter || 'original',
+        filterSettings: normalizeNumericObject(cellData.filterSettings),
+        imageBounds: normalizeNumericObject(imageBounds)
+    });
+}
+
+function normalizeNumericObject(value) {
+    if (!value || typeof value !== 'object') {
+        return value || null;
+    }
+
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+        key,
+        typeof item === 'number' ? Number(item.toFixed(4)) : item
+    ]));
+}
+
+function normalizeOcrItems(result) {
+    const imageWidth = Math.max(1, Number(result?.image?.width) || 1);
+    const imageHeight = Math.max(1, Number(result?.image?.height) || 1);
+
+    return (result?.items || [])
+        .filter(item => item?.text && item.score >= CONFIG.ocr.minConfidence && Array.isArray(item.poly))
+        .map(item => ({
+            text: item.text,
+            score: item.score,
+            polyNorm: item.poly.map(point => [
+                clamp(Number(point[0]) / imageWidth, 0, 1),
+                clamp(Number(point[1]) / imageHeight, 0, 1)
+            ])
+        }))
+        .filter(item => item.polyNorm.length >= 4);
+}
+
+function getOcrBackendLabel(summary) {
+    const backend = summary?.backend || summary?.requestedBackend || '';
+    const detProvider = summary?.providers?.det || summary?.detProvider || '';
+    const recProvider = summary?.providers?.rec || summary?.recProvider || '';
+    const providers = [detProvider, recProvider].filter(Boolean).join('/');
+
+    return providers || backend || 'auto';
+}
+
+function getOcrCompletionMessage(recognizedLines) {
+    if (recognizedLines === 0) {
+        return t('ocr.completeNoText');
+    }
+
+    return t('ocr.completeWithText', { count: recognizedLines });
+}
+
+async function handleRunOCR() {
+    if (ocrState.busy) return;
+
+    const totalCells = appState.pages.reduce((count, page) => (
+        count + page.cells.filter(isCellImageContent).length
+    ), 0);
+
+    if (!totalCells) {
+        showStatusToast(t('ocr.noImages'));
+        return;
+    }
+
+    ocrState.busy = true;
+    ocrState.status = 'loading';
+    updateOcrButtonState();
+    showLoading(t('ocr.loadingEngine'));
+
+    const originalPageIndex = appState.currentPageIndex;
+    let recognizedLines = 0;
+    let processedCells = 0;
+
+    try {
+        const ocr = await getPaddleOcrEngine();
+        ocrState.status = 'ready';
+        updateOcrButtonState();
+
+        for (let pageIndex = 0; pageIndex < appState.pages.length; pageIndex++) {
+            appState.currentPageIndex = pageIndex;
+            renderCurrentPage();
+
+            const cellIndices = layoutState.cells
+                .map((cell, cellIndex) => (isCellImageContent(cell) ? cellIndex : null))
+                .filter(cellIndex => cellIndex !== null);
+
+            if (!cellIndices.length) {
+                continue;
+            }
+
+            showLoading(t('ocr.preparingPage', {
+                current: pageIndex + 1,
+                total: appState.pages.length
+            }));
+            const renderedSheet = await renderSheetToFullCanvas(CONFIG.ocr.rasterScale);
+
+            for (const cellIndex of cellIndices) {
+                const cellData = layoutState.cells[cellIndex];
+                const imageBounds = getActualImageBounds(cellIndex);
+
+                if (!cellData?.image || !imageBounds) {
+                    continue;
+                }
+
+                processedCells += 1;
+                showLoading(t('ocr.runningCell', {
+                    page: pageIndex + 1,
+                    cell: cellIndex + 1
+                }));
+
+                const cellCanvas = extractCellCanvasFromRenderedSheet(
+                    renderedSheet,
+                    imageBounds,
+                    CONFIG.ocr.rasterScale
+                );
+
+                if (!cellCanvas) {
+                    continue;
+                }
+
+                const signature = getCellOcrSignature(cellIndex);
+                const [result] = await ocr.predict(cellCanvas);
+                const items = normalizeOcrItems(result);
+
+                cellData.ocr = {
+                    engine: 'paddleocr',
+                    model: CONFIG.ocr.textRecognitionModelName,
+                    signature,
+                    items,
+                    metrics: result?.metrics || null,
+                    runtime: result?.runtime || null
+                };
+
+                recognizedLines += items.length;
+            }
+        }
+
+        const backendLabel = getOcrBackendLabel(ocrState.lastSummary);
+        console.log('[OCR] Scan complete:', {
+            recognizedLines,
+            processedCells,
+            backend: backendLabel,
+            summary: ocrState.lastSummary
+        });
+        showStatusToast(getOcrCompletionMessage(recognizedLines), 3200);
+    } catch (error) {
+        console.error('OCR failed:', error);
+        ocrState.status = 'error';
+        ocrState.lastError = String(error);
+        alert(t('ocr.failed'));
+    } finally {
+        appState.currentPageIndex = originalPageIndex;
+        renderCurrentPage();
+        hideLoading();
+        ocrState.busy = false;
+        updateOcrButtonState();
+
+        if (!processedCells && ocrState.status !== 'error') {
+            showStatusToast(t('ocr.noExportableCells'));
+        }
+    }
+}
+
 // Export functionality
 async function handleQualityExport(quality) {
     hideExportOverlay();
-    showLoading(`Exporting in ${EXPORT_QUALITY[quality].label} quality...`);
+    showLoading(t('export.exporting', { quality: getExportQualityLabel(quality) }));
     
     try {
         const pdf = await assemblePDF(quality);
         downloadPDF(pdf, quality);
         hideLoading();
-        showStatusToast('Export complete!');
+        showStatusToast(t('export.complete'));
     } catch (error) {
         hideLoading();
         console.error('Export failed:', error);
-        alert('Export failed. Please try again.');
+        alert(t('export.failed'));
     }
 }
 
@@ -3872,7 +4905,10 @@ async function assemblePDF(quality) {
                 pdf.addPage([width, height], orientation === 'landscape' ? 'l' : 'p');
             }
 
-            showLoading(`Rasterizing page ${pageIndex + 1} of ${appState.pages.length}...`);
+            showLoading(t('export.rasterizingPage', {
+                current: pageIndex + 1,
+                total: appState.pages.length
+            }));
             const renderedSheet = await renderSheetToFullCanvas(scale);
 
             for (let i = 0; i < layoutState.cells.length; i++) {
@@ -3898,15 +4934,83 @@ async function assemblePDF(quality) {
                     imageBounds.width,
                     imageBounds.height
                 );
+
+                addCellOcrTextLayer(pdf, imageBounds, layoutState.cells[i], i);
             }
         }
 
-        showLoading('Assembling PDF...');
+        showLoading(t('export.assembling'));
         return pdf;
     } finally {
         appState.currentPageIndex = originalPageIndex;
         renderCurrentPage();
     }
+}
+
+function addCellOcrTextLayer(pdf, imageBounds, cellData, cellIndex) {
+    if (!cellData?.ocr?.items?.length || cellData.ocr.signature !== getCellOcrSignature(cellIndex)) {
+        return;
+    }
+
+    const previousFontSize = pdf.getFontSize();
+    const previousTextColor = pdf.getTextColor?.();
+
+    try {
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(0, 0, 0);
+
+        for (const item of cellData.ocr.items) {
+            const text = String(item.text || '').trim();
+            const bounds = getNormalizedOcrBounds(item.polyNorm);
+
+            if (!text || !bounds || bounds.width <= 0 || bounds.height <= 0) {
+                continue;
+            }
+
+            const x = imageBounds.x + bounds.x * imageBounds.width;
+            const y = imageBounds.y + bounds.y * imageBounds.height;
+            const width = bounds.width * imageBounds.width;
+            const height = bounds.height * imageBounds.height;
+            const fontSizePt = clamp(height * 72 / 25.4 * 0.82, 2, 60);
+
+            pdf.setFontSize(fontSizePt);
+
+            const naturalTextWidth = pdf.getTextWidth(text);
+            const horizontalScale = naturalTextWidth > 0
+                ? clamp(width / naturalTextWidth, 0.25, 4)
+                : 1;
+
+            pdf.text(text, x, y + height * 0.82, {
+                renderingMode: 'invisible',
+                horizontalScale
+            });
+        }
+    } finally {
+        pdf.setFontSize(previousFontSize);
+        if (previousTextColor) {
+            pdf.setTextColor(previousTextColor);
+        }
+    }
+}
+
+function getNormalizedOcrBounds(polyNorm) {
+    if (!Array.isArray(polyNorm) || polyNorm.length < 4) {
+        return null;
+    }
+
+    const xs = polyNorm.map(point => point[0]);
+    const ys = polyNorm.map(point => point[1]);
+    const minX = clamp(Math.min(...xs), 0, 1);
+    const maxX = clamp(Math.max(...xs), 0, 1);
+    const minY = clamp(Math.min(...ys), 0, 1);
+    const maxY = clamp(Math.max(...ys), 0, 1);
+
+    return {
+        x: minX,
+        y: minY,
+        width: Math.max(0, maxX - minX),
+        height: Math.max(0, maxY - minY)
+    };
 }
 
 async function renderSheetToFullCanvas(scale) {
@@ -3952,6 +5056,12 @@ async function renderSVGToFullCanvas(svg, scale) {
 }
 
 function extractCellImageFromRenderedSheet(fullCanvas, cellCoords, scale, jpegQuality) {
+    const cellCanvas = extractCellCanvasFromRenderedSheet(fullCanvas, cellCoords, scale);
+
+    return cellCanvas ? cellCanvas.toDataURL('image/jpeg', jpegQuality) : null;
+}
+
+function extractCellCanvasFromRenderedSheet(fullCanvas, cellCoords, scale) {
     const targetWidth = Math.round(cellCoords.width * scale);
     const targetHeight = Math.round(cellCoords.height * scale);
 
@@ -3976,7 +5086,7 @@ function extractCellImageFromRenderedSheet(fullCanvas, cellCoords, scale, jpegQu
         0, 0, targetWidth, targetHeight
     );
 
-    return cellCanvas.toDataURL('image/jpeg', jpegQuality);
+    return cellCanvas;
 }
 
 function serializeSVGToDataUrl(svg) {
@@ -4046,6 +5156,6 @@ function getActualImageBounds(cellIndex) {
 function downloadPDF(pdf, quality) {
     const filename = `PDFomator ${quality}.pdf`;
     
-    showLoading('Preparing download...');
+    showLoading(t('export.preparingDownload'));
     pdf.save(filename);
 }

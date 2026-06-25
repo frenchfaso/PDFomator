@@ -250,6 +250,17 @@ body {
     background: var(--custom-red-dark);
 }
 
+.fab:disabled {
+    cursor: wait;
+    opacity: 0.65;
+    transform: none;
+}
+
+.fab.is-ready {
+    outline: 2px solid rgba(255, 255, 255, 0.85);
+    outline-offset: 2px;
+}
+
 .fab-container {
     display: flex;
     gap: 1rem;

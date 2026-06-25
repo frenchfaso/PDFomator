@@ -4,9 +4,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' blob:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' blob: data:;">
     <title>PDFomator</title>
-    <meta name="description" content="Minimal Mobile PWA to Pack PDF Pages on a Sheet">
+    <meta name="description" content="Minimal Mobile PWA to Pack PDF Pages on a Sheet" data-i18n-attr="content:app.description">
     
     <!-- PWA -->
     <link rel="manifest" href="manifest.json">
@@ -33,14 +33,14 @@
         <main class="main-content">
             <div id="sheetStack" class="sheet-stack">
                 <div id="sheet" class="sheet a4-portrait"></div>
-                <div id="pageControls" class="page-controls" aria-label="Page controls">
-                    <button id="prevPageBtn" class="page-control-btn page-nav-btn hidden" aria-label="Previous Page">&lt;</button>
+                <div id="pageControls" class="page-controls" aria-label="Page controls" data-i18n-attr="aria-label:page.controls">
+                    <button id="prevPageBtn" class="page-control-btn page-nav-btn hidden" aria-label="Previous Page" data-i18n-attr="aria-label:page.previous">&lt;</button>
                     <div class="page-center-controls">
-                        <button id="removePageBtn" class="page-control-btn hidden" aria-label="Remove Current Page">-</button>
+                        <button id="removePageBtn" class="page-control-btn hidden" aria-label="Remove Current Page" data-i18n-attr="aria-label:page.remove">-</button>
                         <span id="pageIndicator" class="page-indicator hidden">1 / 1</span>
-                        <button id="addPageBtn" class="page-control-btn" aria-label="Add Page">+</button>
+                        <button id="addPageBtn" class="page-control-btn" aria-label="Add Page" data-i18n-attr="aria-label:page.add">+</button>
                     </div>
-                    <button id="nextPageBtn" class="page-control-btn page-nav-btn hidden" aria-label="Next Page">&gt;</button>
+                    <button id="nextPageBtn" class="page-control-btn page-nav-btn hidden" aria-label="Next Page" data-i18n-attr="aria-label:page.next">&gt;</button>
                 </div>
             </div>
         </main>
@@ -48,15 +48,19 @@
         <!-- Bottom FABs Container -->
         <div class="fab-section">
             <div class="fab-container">
-                <button id="sizeBtn" class="fab" aria-label="Change Paper Size">
+                <button id="sizeBtn" class="fab" aria-label="Change Paper Size" data-i18n-attr="aria-label:actions.changePaperSize">
                     <span>📄</span>
                 </button>
                 
-                <button id="gridBtn" class="fab" aria-label="Select Grid Layout">
+                <button id="gridBtn" class="fab" aria-label="Select Grid Layout" data-i18n-attr="aria-label:actions.selectGrid">
                     <span>🔲</span>
                 </button>
+
+                <button id="ocrBtn" class="fab" aria-label="Run OCR" data-i18n-attr="aria-label:actions.runOcr">
+                    <span>🔎</span>
+                </button>
                 
-                <button id="exportBtn" class="fab" aria-label="Export PDF">
+                <button id="exportBtn" class="fab" aria-label="Export PDF" data-i18n-attr="aria-label:actions.exportPdf">
                     <span>⬇️</span>
                 </button>
             </div>
@@ -66,52 +70,52 @@
     <!-- Grid Picker Overlay (hidden by default) -->
     <div id="gridOverlay" class="grid-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="gridOverlayTitle">
         <div class="grid-picker">
-            <h3 id="gridOverlayTitle">Select Grid Size</h3>
+            <h3 id="gridOverlayTitle" data-i18n="grid.title">Select Grid Size</h3>
             <div id="gridMatrix" class="grid-matrix"></div>
             <div class="grid-info">
                 <span id="gridDisplay">1 × 2</span>
             </div>
-            <button id="cancelGrid" class="btn-cancel">Cancel</button>
+            <button id="cancelGrid" class="btn-cancel" data-i18n="common.cancel">Cancel</button>
         </div>
     </div>
     
     <!-- Size Picker Overlay -->
     <div id="sizeOverlay" class="size-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="sizeOverlayTitle">
         <div class="size-picker">
-            <h3 id="sizeOverlayTitle">Select Paper Size & Orientation</h3>
+            <h3 id="sizeOverlayTitle" data-i18n="paper.title">Select Paper Size & Orientation</h3>
             <div class="size-options">
                 <div class="size-option interactive-card" data-size="A4" data-orientation="portrait">
                     <div class="size-preview a4-portrait"></div>
-                    <span class="size-label">A4 Portrait</span>
+                    <span class="size-label" data-i18n="paper.a4Portrait">A4 Portrait</span>
                     <span class="size-dimensions">210 × 297mm</span>
                 </div>
                 <div class="size-option interactive-card" data-size="A4" data-orientation="landscape">
                     <div class="size-preview a4-landscape"></div>
-                    <span class="size-label">A4 Landscape</span>
+                    <span class="size-label" data-i18n="paper.a4Landscape">A4 Landscape</span>
                     <span class="size-dimensions">297 × 210mm</span>
                 </div>
                 <div class="size-option interactive-card" data-size="A3" data-orientation="portrait">
                     <div class="size-preview a3-portrait"></div>
-                    <span class="size-label">A3 Portrait</span>
+                    <span class="size-label" data-i18n="paper.a3Portrait">A3 Portrait</span>
                     <span class="size-dimensions">297 × 420mm</span>
                 </div>
                 <div class="size-option interactive-card" data-size="A3" data-orientation="landscape">
                     <div class="size-preview a3-landscape"></div>
-                    <span class="size-label">A3 Landscape</span>
+                    <span class="size-label" data-i18n="paper.a3Landscape">A3 Landscape</span>
                     <span class="size-dimensions">420 × 297mm</span>
                 </div>
             </div>
-            <button id="cancelSize" class="btn-cancel">Cancel</button>
+            <button id="cancelSize" class="btn-cancel" data-i18n="common.cancel">Cancel</button>
         </div>
     </div>
     
     <!-- PDF Page Selector Overlay -->
     <div id="pageSelector" class="page-selector-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="pageSelectorTitle">
         <div class="page-selector">
-            <h3 id="pageSelectorTitle">Select PDF Page</h3>
+            <h3 id="pageSelectorTitle" data-i18n="pdfPage.title">Select PDF Page</h3>
             <div id="pageGrid" class="page-grid"></div>
             <div class="page-selector-actions">
-                <button id="cancelPageSelection" class="btn-cancel">Cancel</button>
+                <button id="cancelPageSelection" class="btn-cancel" data-i18n="common.cancel">Cancel</button>
             </div>
         </div>
     </div>
@@ -119,17 +123,17 @@
     <!-- Export Quality Selector Overlay -->
     <div id="exportOverlay" class="export-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="exportOverlayTitle">
         <div class="overlay-content">
-            <h3 id="exportOverlayTitle">Export Quality</h3>
+            <h3 id="exportOverlayTitle" data-i18n="export.title">Export Quality</h3>
             <div class="export-options">
                 <button id="exportSD" class="export-btn">
-                    <strong>SD (web, mail)</strong>
-                    <small>Smaller files</small>
+                    <strong data-i18n="export.sdTitle">SD (web, mail)</strong>
+                    <small data-i18n="export.sdDescription">Smaller files</small>
                 </button>
                 <button id="exportHD" class="export-btn">
-                    <strong>HD (print)</strong>
-                    <small>Bigger files</small>
+                    <strong data-i18n="export.hdTitle">HD (print)</strong>
+                    <small data-i18n="export.hdDescription">Bigger files</small>
                 </button>
-                <button id="cancelExport" class="cancel-btn">Cancel</button>
+                <button id="cancelExport" class="cancel-btn" data-i18n="common.cancel">Cancel</button>
             </div>
         </div>
     </div>
@@ -137,43 +141,43 @@
     <!-- File Type Selector Overlay -->
     <div id="fileTypeSelector" class="file-type-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="fileTypeSelectorTitle">
         <div class="file-type-picker">
-            <h3 id="fileTypeSelectorTitle">Choose Content Type</h3>
+            <h3 id="fileTypeSelectorTitle" data-i18n="fileType.title">Choose Content Type</h3>
             <div class="file-type-buttons">
                 <button id="selectPdfBtn" class="file-type-btn">
                     <span class="file-type-icon">📄</span>
-                    <span>PDF Document</span>
+                    <span data-i18n="fileType.pdf">PDF Document</span>
                 </button>
                 <button id="selectImageBtn" class="file-type-btn">
                     <span class="file-type-icon">🖼️</span>
-                    <span>Image File</span>
+                    <span data-i18n="fileType.image">Image File</span>
                 </button>
                 <button id="selectCameraBtn" class="file-type-btn">
                     <span class="file-type-icon">📷</span>
-                    <span>Camera</span>
+                    <span data-i18n="fileType.camera">Camera</span>
                 </button>
             </div>
-            <button id="cancelFileType" class="btn-cancel">Cancel</button>
+            <button id="cancelFileType" class="btn-cancel" data-i18n="common.cancel">Cancel</button>
         </div>
     </div>
 
     <!-- Camera Overlay -->
     <div id="cameraOverlay" class="camera-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="cameraOverlayTitle">
         <div class="camera-picker">
-            <h3 id="cameraOverlayTitle">Take Photo</h3>
+            <h3 id="cameraOverlayTitle" data-i18n="camera.title">Take Photo</h3>
             <div id="cameraDeviceField" class="camera-device-field hidden">
-                <label for="cameraDeviceSelect">Camera</label>
+                <label for="cameraDeviceSelect" data-i18n="camera.device">Camera</label>
                 <select id="cameraDeviceSelect"></select>
             </div>
             <div class="camera-preview-shell">
                 <video id="cameraVideo" class="camera-preview" autoplay playsinline muted></video>
-                <img id="cameraCapturedImage" class="camera-preview hidden" alt="Captured photo preview">
+                <img id="cameraCapturedImage" class="camera-preview hidden" alt="Captured photo preview" data-i18n-attr="alt:camera.capturedPreview">
             </div>
             <div class="camera-actions">
-                <button id="cameraCaptureBtn" class="file-type-btn">Capture</button>
-                <button id="cameraUseBtn" class="file-type-btn hidden">Use Photo</button>
-                <button id="cameraRetakeBtn" class="file-type-btn hidden">Retake</button>
+                <button id="cameraCaptureBtn" class="file-type-btn" data-i18n="camera.capture">Capture</button>
+                <button id="cameraUseBtn" class="file-type-btn hidden" data-i18n="camera.usePhoto">Use Photo</button>
+                <button id="cameraRetakeBtn" class="file-type-btn hidden" data-i18n="camera.retake">Retake</button>
             </div>
-            <button id="cancelCamera" class="btn-cancel">Cancel</button>
+            <button id="cancelCamera" class="btn-cancel" data-i18n="common.cancel">Cancel</button>
         </div>
     </div>
     
@@ -183,13 +187,13 @@
     <input type="file" id="cameraInput" accept="image/*" capture style="display: none;">
     
     <!-- Loading indicator -->
-    <div id="loading" class="loading hidden" role="status" aria-live="polite" aria-label="Loading">
+    <div id="loading" class="loading hidden" role="status" aria-live="polite" aria-label="Loading" data-i18n-attr="aria-label:loading.title">
         <div class="spinner" aria-hidden="true"></div>
-        <p>Processing...</p>
+        <p data-i18n="loading.processing">Processing...</p>
     </div>
 
-    <div id="bitonalPopover" class="bitonal-popover hidden" role="dialog" aria-label="1-bit threshold">
-        <input id="bitonalThresholdSlider" type="range" min="20" max="90" step="1" value="58" aria-label="1-bit threshold">
+    <div id="bitonalPopover" class="bitonal-popover hidden" role="dialog" aria-label="1-bit threshold" data-i18n-attr="aria-label:filters.bitonalThreshold">
+        <input id="bitonalThresholdSlider" type="range" min="20" max="90" step="1" value="58" aria-label="1-bit threshold" data-i18n-attr="aria-label:filters.bitonalThreshold">
     </div>
     
     <!-- Scripts -->
@@ -198,6 +202,7 @@
         // jsPDF initialization (from official examples)
         window.jsPDF = window.jspdf.jsPDF;
     </script>
+    <script src="./vendor/i18next/i18next.min.js"></script>
     <script type="module" src="main.js"></script>
 </body>
 </html>

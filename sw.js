@@ -2,7 +2,7 @@
 // Simple offline cache for static assets
 
 const CACHE_PREFIX = 'pdfomator-';
-const CACHE_NAME = 'pdfomator-v1.3.28';
+const CACHE_NAME = 'pdfomator-v1.3.40';
 const STATIC_ASSETS = [
     './',
     './index.html',
@@ -14,7 +14,16 @@ const STATIC_ASSETS = [
     './vendor/pico.red.min.css',
     './vendor/pdf.mjs',
     './vendor/pdf.worker.mjs',
-    './vendor/jspdf.umd.min.js'
+    './vendor/jspdf.umd.min.js',
+    './vendor/i18next/i18next.min.js',
+    './vendor/paddleocr/paddleocr-browser.mjs',
+    './vendor/paddleocr/assets/worker-entry-C9UNuyOJ.js',
+    './vendor/paddleocr/ort-wasm-simd-threaded.asyncify.mjs',
+    './vendor/paddleocr/ort-wasm-simd-threaded.asyncify.wasm',
+    './vendor/paddleocr/ort-wasm-simd-threaded.jsep.mjs',
+    './vendor/paddleocr/ort-wasm-simd-threaded.jsep.wasm',
+    './vendor/paddleocr/models/PP-OCRv6_small_det_onnx_infer.tar',
+    './vendor/paddleocr/models/PP-OCRv6_small_rec_onnx_infer.tar'
 ];
 
 // Utility function to check if URL should be cached
