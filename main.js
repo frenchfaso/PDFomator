@@ -1063,6 +1063,8 @@ const CONFIG = {
         rasterScale: 3,
         minConfidence: 0.35,
         textRecognitionBatchSize: 4,
+        preloadDelayMs: 1500,
+        preloadIdleTimeoutMs: 3500,
         scanSweepDurationMs: 1400,
         minScanFeedbackMs: 250,
         flashDurationMs: 2200
@@ -1194,6 +1196,7 @@ const ocrState = {
     enginePromise: null,
     busy: false,
     status: 'idle',
+    preloadScheduled: false,
     activeCell: null,
     flashItems: [],
     flashTimeoutId: null,
@@ -1495,6 +1498,7 @@ async function init() {
 
     // Initialize the current page view
     renderCurrentPage();
+    scheduleOcrEnginePreload();
 }
 
 function registerServiceWorker() {
@@ -3721,28 +3725,6 @@ function renderCellCropBorder(cellUIGroup, cellIndex, contentRect, cropRect, has
     appendCropCornerHitArea(cellUIGroup, cellIndex, 'bottom-left', contentRect, cropRect);
 }
 
-function getFirstOcrScanTarget(preferredPageIndex = appState.currentPageIndex) {
-    const preferredPage = appState.pages[preferredPageIndex];
-    const preferredCellIndex = preferredPage?.cells.findIndex(isCellImageContent) ?? -1;
-
-    if (preferredCellIndex >= 0) {
-        return {
-            pageIndex: preferredPageIndex,
-            cellIndex: preferredCellIndex
-        };
-    }
-
-    for (let pageIndex = 0; pageIndex < appState.pages.length; pageIndex++) {
-        const cellIndex = appState.pages[pageIndex].cells.findIndex(isCellImageContent);
-
-        if (cellIndex >= 0) {
-            return { pageIndex, cellIndex };
-        }
-    }
-
-    return null;
-}
-
 function clearOcrFlashTimer() {
     if (ocrState.flashTimeoutId) {
         clearTimeout(ocrState.flashTimeoutId);
@@ -3771,10 +3753,6 @@ function setOcrActiveCell(pageIndex, cellIndex) {
 }
 
 function waitForNextPaint() {
-    if (document.visibilityState === 'hidden') {
-        return Promise.resolve();
-    }
-
     return new Promise(resolve => requestAnimationFrame(() => resolve()));
 }
 
@@ -3783,11 +3761,29 @@ function waitForDuration(ms) {
 }
 
 async function waitForOcrScanFeedback() {
+    if (document.visibilityState === 'hidden') {
+        return;
+    }
+
     await waitForNextPaint();
 
     if (CONFIG.ocr.minScanFeedbackMs > 0) {
         await waitForDuration(CONFIG.ocr.minScanFeedbackMs);
     }
+}
+
+function getCurrentSvgScreenScale() {
+    const svg = elements.sheet?.querySelector('svg');
+    const svgRect = svg?.getBoundingClientRect();
+
+    if (!svgRect || !layoutState.sheet.width || !layoutState.sheet.height) {
+        return 1;
+    }
+
+    return Math.min(
+        svgRect.width / layoutState.sheet.width,
+        svgRect.height / layoutState.sheet.height
+    ) || 1;
 }
 
 function isCurrentOcrActiveCell(cellIndex) {
@@ -3834,8 +3830,8 @@ function renderOcrCellActivity(cellUIGroup, cellIndex, cellRect, contentRect) {
     const sweepRect = getActualImageBounds(cellIndex) || contentRect;
     const bandHeight = Math.max(4, sweepRect.height * 0.16);
     const startY = sweepRect.y - bandHeight;
-    const endY = sweepRect.y + sweepRect.height;
     const duration = `${(CONFIG.ocr.scanSweepDurationMs / 1000).toFixed(2)}s`;
+    const travelPx = (sweepRect.height + bandHeight) * getCurrentSvgScreenScale();
     const clipId = `ocr-scan-clip-${appState.currentPageIndex}-${cellIndex}`;
 
     const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
@@ -3855,43 +3851,32 @@ function renderOcrCellActivity(cellUIGroup, cellIndex, cellRect, contentRect) {
     sweepGroup.setAttribute('class', 'ocr-scan-sweep');
     sweepGroup.setAttribute('clip-path', `url(#${clipId})`);
 
+    const positionGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    positionGroup.setAttribute('transform', `translate(0 ${startY})`);
+
+    const trackGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    trackGroup.setAttribute('class', 'ocr-scan-sweep-track');
+    trackGroup.style.setProperty('--ocr-scan-duration', duration);
+    trackGroup.style.setProperty('--ocr-sweep-distance', `${travelPx.toFixed(2)}px`);
+
     const band = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     band.setAttribute('x', sweepRect.x);
-    band.setAttribute('y', startY);
+    band.setAttribute('y', '0');
     band.setAttribute('width', sweepRect.width);
     band.setAttribute('height', bandHeight);
     band.setAttribute('class', 'ocr-scan-sweep-band');
 
-    const bandAnimation = document.createElementNS('http://www.w3.org/2000/svg', 'animate');
-    bandAnimation.setAttribute('attributeName', 'y');
-    bandAnimation.setAttribute('values', `${startY};${endY};${startY}`);
-    bandAnimation.setAttribute('dur', duration);
-    bandAnimation.setAttribute('repeatCount', 'indefinite');
-    band.appendChild(bandAnimation);
-
     const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
     line.setAttribute('x1', sweepRect.x);
     line.setAttribute('x2', sweepRect.x + sweepRect.width);
-    line.setAttribute('y1', startY + bandHeight);
-    line.setAttribute('y2', startY + bandHeight);
+    line.setAttribute('y1', bandHeight);
+    line.setAttribute('y2', bandHeight);
     line.setAttribute('class', 'ocr-scan-sweep-line');
 
-    const lineAnimationY1 = document.createElementNS('http://www.w3.org/2000/svg', 'animate');
-    lineAnimationY1.setAttribute('attributeName', 'y1');
-    lineAnimationY1.setAttribute('values', `${startY + bandHeight};${endY};${startY + bandHeight}`);
-    lineAnimationY1.setAttribute('dur', duration);
-    lineAnimationY1.setAttribute('repeatCount', 'indefinite');
-
-    const lineAnimationY2 = document.createElementNS('http://www.w3.org/2000/svg', 'animate');
-    lineAnimationY2.setAttribute('attributeName', 'y2');
-    lineAnimationY2.setAttribute('values', `${startY + bandHeight};${endY};${startY + bandHeight}`);
-    lineAnimationY2.setAttribute('dur', duration);
-    lineAnimationY2.setAttribute('repeatCount', 'indefinite');
-
-    line.appendChild(lineAnimationY1);
-    line.appendChild(lineAnimationY2);
-    sweepGroup.appendChild(band);
-    sweepGroup.appendChild(line);
+    trackGroup.appendChild(band);
+    trackGroup.appendChild(line);
+    positionGroup.appendChild(trackGroup);
+    sweepGroup.appendChild(positionGroup);
     cellUIGroup.appendChild(sweepGroup);
 }
 
@@ -4889,6 +4874,58 @@ function updateOcrButtonState() {
     elements.ocrBtn.classList.toggle('is-ready', ocrState.status === 'ready');
 }
 
+function scheduleOcrEnginePreload() {
+    if (ocrState.preloadScheduled) {
+        return;
+    }
+
+    ocrState.preloadScheduled = true;
+
+    const scheduleIdlePreload = () => {
+        const runPreload = () => {
+            if (ocrState.busy) {
+                return;
+            }
+
+            void preloadOcrEngine();
+        };
+
+        if (typeof window.requestIdleCallback === 'function') {
+            window.requestIdleCallback(runPreload, {
+                timeout: CONFIG.ocr.preloadIdleTimeoutMs
+            });
+            return;
+        }
+
+        setTimeout(runPreload, CONFIG.ocr.preloadDelayMs);
+    };
+
+    requestAnimationFrame(() => {
+        setTimeout(scheduleIdlePreload, CONFIG.ocr.preloadDelayMs);
+    });
+}
+
+async function preloadOcrEngine() {
+    if (ocrState.status === 'ready') {
+        return;
+    }
+
+    console.log('[OCR] Preloading OCR engine');
+
+    try {
+        await getPaddleOcrEngine();
+
+        if (!ocrState.busy) {
+            ocrState.status = 'ready';
+            updateOcrButtonState();
+        }
+
+        console.log('[OCR] OCR engine preloaded');
+    } catch (error) {
+        console.warn('[OCR] OCR engine preload failed:', error);
+    }
+}
+
 async function getPaddleOcrEngine() {
     if (!ocrState.enginePromise) {
         ocrState.enginePromise = (async () => {
@@ -5007,16 +5044,9 @@ async function handleRunOCR() {
     updateOcrButtonState();
 
     const originalPageIndex = appState.currentPageIndex;
-    const initialTarget = getFirstOcrScanTarget(originalPageIndex);
     let recognizedLines = 0;
     let processedCells = 0;
     let completedSuccessfully = false;
-
-    if (initialTarget) {
-        appState.currentPageIndex = initialTarget.pageIndex;
-        ocrState.activeCell = initialTarget;
-        renderCurrentPage();
-    }
 
     try {
         const ocr = await getPaddleOcrEngine();
@@ -5035,7 +5065,6 @@ async function handleRunOCR() {
                 continue;
             }
 
-            setOcrActiveCell(pageIndex, cellIndices[0]);
             const renderedSheet = await renderSheetToFullCanvas(CONFIG.ocr.rasterScale);
 
             for (const cellIndex of cellIndices) {

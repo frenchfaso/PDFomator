@@ -676,6 +676,13 @@ body {
     pointer-events: none;
 }
 
+.ocr-scan-sweep-track {
+    animation: ocrScanSweep var(--ocr-scan-duration, 1.4s) linear infinite;
+    transform-box: view-box;
+    transform-origin: 0 0;
+    will-change: transform;
+}
+
 .ocr-scan-sweep-band {
     fill: rgba(14, 165, 233, 0.14);
 }
@@ -692,6 +699,15 @@ body {
     stroke-width: 0.45;
     vector-effect: non-scaling-stroke;
     animation: ocrBboxFlash 2.2s ease-in-out forwards;
+}
+
+@keyframes ocrScanSweep {
+    0% {
+        transform: translateY(0);
+    }
+    100% {
+        transform: translateY(var(--ocr-sweep-distance, 0px));
+    }
 }
 
 @keyframes ocrBboxFlash {
