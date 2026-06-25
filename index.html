@@ -32,7 +32,10 @@
         <!-- Main Content -->
         <main class="main-content">
             <div id="sheetStack" class="sheet-stack">
-                <div id="sheet" class="sheet a4-portrait"></div>
+                <div id="sheetFrame" class="sheet-frame">
+                    <div id="sheet" class="sheet a4-portrait"></div>
+                    <div id="ocrVisualOverlay" class="ocr-visual-overlay hidden" aria-hidden="true"></div>
+                </div>
                 <div id="pageControls" class="page-controls" aria-label="Page controls" data-i18n-attr="aria-label:page.controls">
                     <button id="prevPageBtn" class="page-control-btn page-nav-btn hidden" aria-label="Previous Page" data-i18n-attr="aria-label:page.previous">&lt;</button>
                     <div class="page-center-controls">

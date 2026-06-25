@@ -1066,7 +1066,7 @@ const CONFIG = {
         preloadDelayMs: 1500,
         preloadIdleTimeoutMs: 3500,
         scanSweepDurationMs: 1400,
-        minScanFeedbackMs: 250,
+        postScanFeedbackMs: 250,
         flashDurationMs: 2200
     }
 };
@@ -1722,7 +1722,9 @@ function refreshVersionDisplay() {
 function cacheElements() {
     elements = {
         sheet: document.getElementById('sheet'),
+        sheetFrame: document.getElementById('sheetFrame'),
         sheetStack: document.getElementById('sheetStack'),
+        ocrVisualOverlay: document.getElementById('ocrVisualOverlay'),
         pageControls: document.getElementById('pageControls'),
         prevPageBtn: document.getElementById('prevPageBtn'),
         nextPageBtn: document.getElementById('nextPageBtn'),
@@ -3732,23 +3734,19 @@ function clearOcrFlashTimer() {
     }
 }
 
-function clearOcrVisualState(options = {}) {
-    const { render = true } = options;
-
+function clearOcrVisualState() {
     clearOcrFlashTimer();
     ocrState.activeCell = null;
     ocrState.flashItems = [];
-
-    if (render) {
-        renderSVGSheet();
-    }
+    clearOcrScanOverlay();
+    clearOcrFlashOverlay();
 }
 
 function setOcrActiveCell(pageIndex, cellIndex) {
     ocrState.activeCell = { pageIndex, cellIndex };
 
     if (appState.currentPageIndex === pageIndex) {
-        renderSVGSheet();
+        showOcrScanOverlay(cellIndex);
     }
 }
 
@@ -3766,30 +3764,95 @@ async function waitForOcrScanFeedback() {
     }
 
     await waitForNextPaint();
-
-    if (CONFIG.ocr.minScanFeedbackMs > 0) {
-        await waitForDuration(CONFIG.ocr.minScanFeedbackMs);
-    }
 }
 
-function getCurrentSvgScreenScale() {
+function syncOcrOverlayVisibility() {
+    if (!elements.ocrVisualOverlay) {
+        return;
+    }
+
+    const hasVisuals = !!elements.ocrVisualOverlay.querySelector('.ocr-scan-html, .ocr-bbox-flash');
+    elements.ocrVisualOverlay.classList.toggle('hidden', !hasVisuals);
+}
+
+function clearOcrScanOverlay() {
+    elements.ocrVisualOverlay?.querySelectorAll('.ocr-scan-html').forEach(element => element.remove());
+    syncOcrOverlayVisibility();
+}
+
+function clearOcrFlashOverlay() {
+    elements.ocrVisualOverlay?.querySelectorAll('.ocr-bbox-flash').forEach(element => element.remove());
+    syncOcrOverlayVisibility();
+}
+
+function getOcrOverlayRectFromSheetBounds(bounds) {
     const svg = elements.sheet?.querySelector('svg');
     const svgRect = svg?.getBoundingClientRect();
+    const frameRect = elements.sheetFrame?.getBoundingClientRect();
 
-    if (!svgRect || !layoutState.sheet.width || !layoutState.sheet.height) {
-        return 1;
+    if (!svgRect || !frameRect || !layoutState.sheet.width || !layoutState.sheet.height) {
+        return null;
     }
 
-    return Math.min(
-        svgRect.width / layoutState.sheet.width,
-        svgRect.height / layoutState.sheet.height
-    ) || 1;
+    const scaleX = svgRect.width / layoutState.sheet.width;
+    const scaleY = svgRect.height / layoutState.sheet.height;
+
+    return {
+        left: svgRect.left - frameRect.left + bounds.x * scaleX,
+        top: svgRect.top - frameRect.top + bounds.y * scaleY,
+        width: bounds.width * scaleX,
+        height: bounds.height * scaleY
+    };
 }
 
-function isCurrentOcrActiveCell(cellIndex) {
-    return ocrState.busy
-        && ocrState.activeCell?.pageIndex === appState.currentPageIndex
-        && ocrState.activeCell?.cellIndex === cellIndex;
+function getCellContentRect(cellIndex) {
+    const { gridSpacing } = getGridMetrics();
+    const { x, y, width, height } = getCellCoordinates(cellIndex);
+    return getContentRectFromCellBounds(x, y, width, height, gridSpacing.cellPadding);
+}
+
+function setHtmlRect(element, rect) {
+    element.style.left = `${rect.left.toFixed(2)}px`;
+    element.style.top = `${rect.top.toFixed(2)}px`;
+    element.style.width = `${Math.max(1, rect.width).toFixed(2)}px`;
+    element.style.height = `${Math.max(1, rect.height).toFixed(2)}px`;
+}
+
+function showOcrScanOverlay(cellIndex) {
+    const overlay = elements.ocrVisualOverlay;
+    if (!overlay) return;
+
+    const sweepBounds = getActualImageBounds(cellIndex) || getCellContentRect(cellIndex);
+    const sweepRect = getOcrOverlayRectFromSheetBounds(sweepBounds);
+
+    clearOcrScanOverlay();
+
+    if (!sweepRect || sweepRect.width <= 0 || sweepRect.height <= 0) {
+        return;
+    }
+
+    const scan = document.createElement('div');
+    scan.className = 'ocr-scan-html';
+    setHtmlRect(scan, sweepRect);
+
+    const bandHeight = Math.max(16, sweepRect.height * 0.16);
+    const track = document.createElement('div');
+    track.className = 'ocr-scan-html-track';
+    track.style.setProperty('--ocr-scan-duration', `${(CONFIG.ocr.scanSweepDurationMs / 1000).toFixed(2)}s`);
+    track.style.setProperty('--ocr-sweep-distance', `${sweepRect.height.toFixed(2)}px`);
+    track.style.setProperty('--ocr-sweep-band-height', `${bandHeight.toFixed(2)}px`);
+
+    const band = document.createElement('div');
+    band.className = 'ocr-scan-html-band';
+
+    const line = document.createElement('div');
+    line.className = 'ocr-scan-html-line';
+
+    track.appendChild(band);
+    track.appendChild(line);
+    scan.appendChild(track);
+    overlay.appendChild(scan);
+    syncOcrOverlayVisibility();
 }
 
 function appendOcrFlashItems(pageIndex, cellIndex, items) {
@@ -3801,10 +3864,6 @@ function appendOcrFlashItems(pageIndex, cellIndex, items) {
         item.pageIndex !== pageIndex || item.cellIndex !== cellIndex
     ));
     ocrState.flashItems.push({ pageIndex, cellIndex, items });
-
-    if (appState.currentPageIndex === pageIndex) {
-        updateSingleCell(cellIndex);
-    }
 }
 
 function scheduleOcrFlashClear(duration = CONFIG.ocr.flashDurationMs) {
@@ -3812,115 +3871,53 @@ function scheduleOcrFlashClear(duration = CONFIG.ocr.flashDurationMs) {
     ocrState.flashTimeoutId = setTimeout(() => {
         ocrState.flashItems = [];
         ocrState.flashTimeoutId = null;
-        renderSVGSheet();
+        clearOcrFlashOverlay();
     }, duration);
 }
 
-function getOcrFlashItemsForCurrentCell(cellIndex) {
-    return ocrState.flashItems.find(item => (
-        item.pageIndex === appState.currentPageIndex && item.cellIndex === cellIndex
-    ))?.items || [];
-}
+function showOcrFlashOverlayForCurrentPage() {
+    const overlay = elements.ocrVisualOverlay;
+    if (!overlay) return;
 
-function renderOcrCellActivity(cellUIGroup, cellIndex, cellRect, contentRect) {
-    if (!isCurrentOcrActiveCell(cellIndex)) {
-        return;
-    }
+    clearOcrFlashOverlay();
 
-    const sweepRect = getActualImageBounds(cellIndex) || contentRect;
-    const bandHeight = Math.max(4, sweepRect.height * 0.16);
-    const startY = sweepRect.y - bandHeight;
-    const duration = `${(CONFIG.ocr.scanSweepDurationMs / 1000).toFixed(2)}s`;
-    const travelPx = (sweepRect.height + bandHeight) * getCurrentSvgScreenScale();
-    const clipId = `ocr-scan-clip-${appState.currentPageIndex}-${cellIndex}`;
-
-    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-    const clipPath = document.createElementNS('http://www.w3.org/2000/svg', 'clipPath');
-    clipPath.setAttribute('id', clipId);
-
-    const clipRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    clipRect.setAttribute('x', sweepRect.x);
-    clipRect.setAttribute('y', sweepRect.y);
-    clipRect.setAttribute('width', sweepRect.width);
-    clipRect.setAttribute('height', sweepRect.height);
-    clipPath.appendChild(clipRect);
-    defs.appendChild(clipPath);
-    cellUIGroup.appendChild(defs);
-
-    const sweepGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    sweepGroup.setAttribute('class', 'ocr-scan-sweep');
-    sweepGroup.setAttribute('clip-path', `url(#${clipId})`);
-
-    const positionGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    positionGroup.setAttribute('transform', `translate(0 ${startY})`);
-
-    const trackGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    trackGroup.setAttribute('class', 'ocr-scan-sweep-track');
-    trackGroup.style.setProperty('--ocr-scan-duration', duration);
-    trackGroup.style.setProperty('--ocr-sweep-distance', `${travelPx.toFixed(2)}px`);
-
-    const band = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    band.setAttribute('x', sweepRect.x);
-    band.setAttribute('y', '0');
-    band.setAttribute('width', sweepRect.width);
-    band.setAttribute('height', bandHeight);
-    band.setAttribute('class', 'ocr-scan-sweep-band');
-
-    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('x1', sweepRect.x);
-    line.setAttribute('x2', sweepRect.x + sweepRect.width);
-    line.setAttribute('y1', bandHeight);
-    line.setAttribute('y2', bandHeight);
-    line.setAttribute('class', 'ocr-scan-sweep-line');
-
-    trackGroup.appendChild(band);
-    trackGroup.appendChild(line);
-    positionGroup.appendChild(trackGroup);
-    sweepGroup.appendChild(positionGroup);
-    cellUIGroup.appendChild(sweepGroup);
-}
-
-function renderOcrFlashBoxes(cellUIGroup, cellIndex) {
-    const items = getOcrFlashItemsForCurrentCell(cellIndex);
-
-    if (!items.length) {
-        return;
-    }
-
-    const imageBounds = getActualImageBounds(cellIndex);
-
-    if (!imageBounds) {
-        return;
-    }
-
-    const flashGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    flashGroup.setAttribute('class', 'ocr-bbox-flash-group');
-
-    for (const item of items) {
-        const bounds = getNormalizedOcrBounds(item.polyNorm);
-
-        if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+    for (const flashItem of ocrState.flashItems) {
+        if (flashItem.pageIndex !== appState.currentPageIndex) {
             continue;
         }
 
-        const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        box.setAttribute('x', imageBounds.x + bounds.x * imageBounds.width);
-        box.setAttribute('y', imageBounds.y + bounds.y * imageBounds.height);
-        box.setAttribute('width', bounds.width * imageBounds.width);
-        box.setAttribute('height', bounds.height * imageBounds.height);
-        box.setAttribute('rx', '0.6');
-        box.setAttribute('class', 'ocr-bbox-flash');
-        flashGroup.appendChild(box);
+        const imageBounds = getActualImageBounds(flashItem.cellIndex);
+        if (!imageBounds) {
+            continue;
+        }
+
+        for (const item of flashItem.items) {
+            const bounds = getNormalizedOcrBounds(item.polyNorm);
+
+            if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+                continue;
+            }
+
+            const boxRect = getOcrOverlayRectFromSheetBounds({
+                x: imageBounds.x + bounds.x * imageBounds.width,
+                y: imageBounds.y + bounds.y * imageBounds.height,
+                width: bounds.width * imageBounds.width,
+                height: bounds.height * imageBounds.height
+            });
+
+            if (!boxRect) {
+                continue;
+            }
+
+            const box = document.createElement('div');
+            box.className = 'ocr-bbox-flash';
+            box.setAttribute('data-ocr-flash', 'true');
+            setHtmlRect(box, boxRect);
+            overlay.appendChild(box);
+        }
     }
 
-    if (flashGroup.childNodes.length) {
-        cellUIGroup.appendChild(flashGroup);
-    }
-}
-
-function renderOcrCellVisuals(cellUIGroup, cellIndex, cellRect, contentRect) {
-    renderOcrCellActivity(cellUIGroup, cellIndex, cellRect, contentRect);
-    renderOcrFlashBoxes(cellUIGroup, cellIndex);
+    syncOcrOverlayVisibility();
 }
 
 // SVG cell rendering function
@@ -3974,13 +3971,7 @@ function renderSVGCell(cellContentGroup, cellUIGroup, cellIndex, cellX, cellY, c
         
         cellContentGroup.appendChild(imageEl);
         renderCellCropBorder(cellUIGroup, cellIndex, contentRect, cropRect, true);
-        renderOcrCellVisuals(cellUIGroup, cellIndex, {
-            x: cellX,
-            y: cellY,
-            width: cellWidth,
-            height: cellHeight
-        }, contentRect);
-        
+
         // Add fill mode cycling button (circle with square icon in top-left corner, inside cell)
         const fillModeBtn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         fillModeBtn.style.cursor = 'pointer';
@@ -5040,7 +5031,7 @@ async function handleRunOCR() {
 
     ocrState.busy = true;
     ocrState.status = 'loading';
-    clearOcrVisualState({ render: false });
+    clearOcrVisualState();
     updateOcrButtonState();
 
     const originalPageIndex = appState.currentPageIndex;
@@ -5086,6 +5077,7 @@ async function handleRunOCR() {
                 );
 
                 if (!cellCanvas) {
+                    clearOcrScanOverlay();
                     continue;
                 }
 
@@ -5104,6 +5096,11 @@ async function handleRunOCR() {
 
                 recognizedLines += items.length;
                 appendOcrFlashItems(pageIndex, cellIndex, items);
+
+                if (CONFIG.ocr.postScanFeedbackMs > 0) {
+                    await waitForDuration(CONFIG.ocr.postScanFeedbackMs);
+                }
+                clearOcrScanOverlay();
             }
         }
 
@@ -5126,7 +5123,9 @@ async function handleRunOCR() {
         ocrState.activeCell = null;
 
         if (!completedSuccessfully || recognizedLines === 0) {
-            clearOcrVisualState({ render: false });
+            clearOcrVisualState();
+        } else {
+            clearOcrScanOverlay();
         }
 
         renderCurrentPage();
@@ -5134,6 +5133,7 @@ async function handleRunOCR() {
         updateOcrButtonState();
 
         if (completedSuccessfully && recognizedLines > 0) {
+            showOcrFlashOverlayForCurrentPage();
             scheduleOcrFlashClear();
         }
 
