@@ -670,6 +670,42 @@ body {
     100% { transform: rotate(360deg); }
 }
 
+/* OCR scan feedback */
+.ocr-scan-sweep,
+.ocr-bbox-flash-group {
+    pointer-events: none;
+}
+
+.ocr-scan-sweep-band {
+    fill: rgba(14, 165, 233, 0.14);
+}
+
+.ocr-scan-sweep-line {
+    stroke: rgba(255, 255, 255, 0.9);
+    stroke-width: 0.55;
+    vector-effect: non-scaling-stroke;
+}
+
+.ocr-bbox-flash {
+    fill: rgba(16, 185, 129, 0.12);
+    stroke: rgba(16, 185, 129, 0.92);
+    stroke-width: 0.45;
+    vector-effect: non-scaling-stroke;
+    animation: ocrBboxFlash 2.2s ease-in-out forwards;
+}
+
+@keyframes ocrBboxFlash {
+    0% {
+        opacity: 0;
+    }
+    20%, 78% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+    }
+}
+
 /* Utility classes */
 .hidden { display: none !important; }
 

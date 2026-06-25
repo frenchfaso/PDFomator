@@ -1062,7 +1062,9 @@ const CONFIG = {
         textRecognitionModelUrl: resolveAppAssetUrl('./vendor/paddleocr/models/PP-OCRv6_small_rec_onnx_infer.tar'),
         rasterScale: 3,
         minConfidence: 0.35,
-        textRecognitionBatchSize: 4
+        textRecognitionBatchSize: 4,
+        scanSweepDurationMs: 1400,
+        flashDurationMs: 2200
     }
 };
 
@@ -1191,6 +1193,9 @@ const ocrState = {
     enginePromise: null,
     busy: false,
     status: 'idle',
+    activeCell: null,
+    flashItems: [],
+    flashTimeoutId: null,
     lastSummary: null,
     lastError: ''
 };
@@ -3715,6 +3720,203 @@ function renderCellCropBorder(cellUIGroup, cellIndex, contentRect, cropRect, has
     appendCropCornerHitArea(cellUIGroup, cellIndex, 'bottom-left', contentRect, cropRect);
 }
 
+function getFirstOcrScanTarget(preferredPageIndex = appState.currentPageIndex) {
+    const preferredPage = appState.pages[preferredPageIndex];
+    const preferredCellIndex = preferredPage?.cells.findIndex(isCellImageContent) ?? -1;
+
+    if (preferredCellIndex >= 0) {
+        return {
+            pageIndex: preferredPageIndex,
+            cellIndex: preferredCellIndex
+        };
+    }
+
+    for (let pageIndex = 0; pageIndex < appState.pages.length; pageIndex++) {
+        const cellIndex = appState.pages[pageIndex].cells.findIndex(isCellImageContent);
+
+        if (cellIndex >= 0) {
+            return { pageIndex, cellIndex };
+        }
+    }
+
+    return null;
+}
+
+function clearOcrFlashTimer() {
+    if (ocrState.flashTimeoutId) {
+        clearTimeout(ocrState.flashTimeoutId);
+        ocrState.flashTimeoutId = null;
+    }
+}
+
+function clearOcrVisualState(options = {}) {
+    const { render = true } = options;
+
+    clearOcrFlashTimer();
+    ocrState.activeCell = null;
+    ocrState.flashItems = [];
+
+    if (render) {
+        renderSVGSheet();
+    }
+}
+
+function setOcrActiveCell(pageIndex, cellIndex) {
+    ocrState.activeCell = { pageIndex, cellIndex };
+
+    if (appState.currentPageIndex === pageIndex) {
+        renderSVGSheet();
+    }
+}
+
+function isCurrentOcrActiveCell(cellIndex) {
+    return ocrState.busy
+        && ocrState.activeCell?.pageIndex === appState.currentPageIndex
+        && ocrState.activeCell?.cellIndex === cellIndex;
+}
+
+function appendOcrFlashItems(pageIndex, cellIndex, items) {
+    if (!items.length) {
+        return;
+    }
+
+    ocrState.flashItems = ocrState.flashItems.filter(item => (
+        item.pageIndex !== pageIndex || item.cellIndex !== cellIndex
+    ));
+    ocrState.flashItems.push({ pageIndex, cellIndex, items });
+
+    if (appState.currentPageIndex === pageIndex) {
+        updateSingleCell(cellIndex);
+    }
+}
+
+function scheduleOcrFlashClear(duration = CONFIG.ocr.flashDurationMs) {
+    clearOcrFlashTimer();
+    ocrState.flashTimeoutId = setTimeout(() => {
+        ocrState.flashItems = [];
+        ocrState.flashTimeoutId = null;
+        renderSVGSheet();
+    }, duration);
+}
+
+function getOcrFlashItemsForCurrentCell(cellIndex) {
+    return ocrState.flashItems.find(item => (
+        item.pageIndex === appState.currentPageIndex && item.cellIndex === cellIndex
+    ))?.items || [];
+}
+
+function renderOcrCellActivity(cellUIGroup, cellIndex, cellRect, contentRect) {
+    if (!isCurrentOcrActiveCell(cellIndex)) {
+        return;
+    }
+
+    const sweepRect = getActualImageBounds(cellIndex) || contentRect;
+    const bandHeight = Math.max(4, sweepRect.height * 0.16);
+    const startY = sweepRect.y - bandHeight;
+    const endY = sweepRect.y + sweepRect.height;
+    const duration = `${(CONFIG.ocr.scanSweepDurationMs / 1000).toFixed(2)}s`;
+    const clipId = `ocr-scan-clip-${appState.currentPageIndex}-${cellIndex}`;
+
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    const clipPath = document.createElementNS('http://www.w3.org/2000/svg', 'clipPath');
+    clipPath.setAttribute('id', clipId);
+
+    const clipRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    clipRect.setAttribute('x', sweepRect.x);
+    clipRect.setAttribute('y', sweepRect.y);
+    clipRect.setAttribute('width', sweepRect.width);
+    clipRect.setAttribute('height', sweepRect.height);
+    clipPath.appendChild(clipRect);
+    defs.appendChild(clipPath);
+    cellUIGroup.appendChild(defs);
+
+    const sweepGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    sweepGroup.setAttribute('class', 'ocr-scan-sweep');
+    sweepGroup.setAttribute('clip-path', `url(#${clipId})`);
+
+    const band = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    band.setAttribute('x', sweepRect.x);
+    band.setAttribute('y', startY);
+    band.setAttribute('width', sweepRect.width);
+    band.setAttribute('height', bandHeight);
+    band.setAttribute('class', 'ocr-scan-sweep-band');
+
+    const bandAnimation = document.createElementNS('http://www.w3.org/2000/svg', 'animate');
+    bandAnimation.setAttribute('attributeName', 'y');
+    bandAnimation.setAttribute('values', `${startY};${endY};${startY}`);
+    bandAnimation.setAttribute('dur', duration);
+    bandAnimation.setAttribute('repeatCount', 'indefinite');
+    band.appendChild(bandAnimation);
+
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', sweepRect.x);
+    line.setAttribute('x2', sweepRect.x + sweepRect.width);
+    line.setAttribute('y1', startY + bandHeight);
+    line.setAttribute('y2', startY + bandHeight);
+    line.setAttribute('class', 'ocr-scan-sweep-line');
+
+    const lineAnimationY1 = document.createElementNS('http://www.w3.org/2000/svg', 'animate');
+    lineAnimationY1.setAttribute('attributeName', 'y1');
+    lineAnimationY1.setAttribute('values', `${startY + bandHeight};${endY};${startY + bandHeight}`);
+    lineAnimationY1.setAttribute('dur', duration);
+    lineAnimationY1.setAttribute('repeatCount', 'indefinite');
+
+    const lineAnimationY2 = document.createElementNS('http://www.w3.org/2000/svg', 'animate');
+    lineAnimationY2.setAttribute('attributeName', 'y2');
+    lineAnimationY2.setAttribute('values', `${startY + bandHeight};${endY};${startY + bandHeight}`);
+    lineAnimationY2.setAttribute('dur', duration);
+    lineAnimationY2.setAttribute('repeatCount', 'indefinite');
+
+    line.appendChild(lineAnimationY1);
+    line.appendChild(lineAnimationY2);
+    sweepGroup.appendChild(band);
+    sweepGroup.appendChild(line);
+    cellUIGroup.appendChild(sweepGroup);
+}
+
+function renderOcrFlashBoxes(cellUIGroup, cellIndex) {
+    const items = getOcrFlashItemsForCurrentCell(cellIndex);
+
+    if (!items.length) {
+        return;
+    }
+
+    const imageBounds = getActualImageBounds(cellIndex);
+
+    if (!imageBounds) {
+        return;
+    }
+
+    const flashGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    flashGroup.setAttribute('class', 'ocr-bbox-flash-group');
+
+    for (const item of items) {
+        const bounds = getNormalizedOcrBounds(item.polyNorm);
+
+        if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+            continue;
+        }
+
+        const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        box.setAttribute('x', imageBounds.x + bounds.x * imageBounds.width);
+        box.setAttribute('y', imageBounds.y + bounds.y * imageBounds.height);
+        box.setAttribute('width', bounds.width * imageBounds.width);
+        box.setAttribute('height', bounds.height * imageBounds.height);
+        box.setAttribute('rx', '0.6');
+        box.setAttribute('class', 'ocr-bbox-flash');
+        flashGroup.appendChild(box);
+    }
+
+    if (flashGroup.childNodes.length) {
+        cellUIGroup.appendChild(flashGroup);
+    }
+}
+
+function renderOcrCellVisuals(cellUIGroup, cellIndex, cellRect, contentRect) {
+    renderOcrCellActivity(cellUIGroup, cellIndex, cellRect, contentRect);
+    renderOcrFlashBoxes(cellUIGroup, cellIndex);
+}
+
 // SVG cell rendering function
 function renderSVGCell(cellContentGroup, cellUIGroup, cellIndex, cellX, cellY, cellWidth, cellHeight, cellPadding) {
     const cellData = layoutState.cells[cellIndex];
@@ -3766,6 +3968,12 @@ function renderSVGCell(cellContentGroup, cellUIGroup, cellIndex, cellX, cellY, c
         
         cellContentGroup.appendChild(imageEl);
         renderCellCropBorder(cellUIGroup, cellIndex, contentRect, cropRect, true);
+        renderOcrCellVisuals(cellUIGroup, cellIndex, {
+            x: cellX,
+            y: cellY,
+            width: cellWidth,
+            height: cellHeight
+        }, contentRect);
         
         // Add fill mode cycling button (circle with square icon in top-left corner, inside cell)
         const fillModeBtn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -4774,12 +4982,20 @@ async function handleRunOCR() {
 
     ocrState.busy = true;
     ocrState.status = 'loading';
+    clearOcrVisualState({ render: false });
     updateOcrButtonState();
-    showLoading(t('ocr.loadingEngine'));
 
     const originalPageIndex = appState.currentPageIndex;
+    const initialTarget = getFirstOcrScanTarget(originalPageIndex);
     let recognizedLines = 0;
     let processedCells = 0;
+    let completedSuccessfully = false;
+
+    if (initialTarget) {
+        appState.currentPageIndex = initialTarget.pageIndex;
+        ocrState.activeCell = initialTarget;
+        renderCurrentPage();
+    }
 
     try {
         const ocr = await getPaddleOcrEngine();
@@ -4798,10 +5014,7 @@ async function handleRunOCR() {
                 continue;
             }
 
-            showLoading(t('ocr.preparingPage', {
-                current: pageIndex + 1,
-                total: appState.pages.length
-            }));
+            setOcrActiveCell(pageIndex, cellIndices[0]);
             const renderedSheet = await renderSheetToFullCanvas(CONFIG.ocr.rasterScale);
 
             for (const cellIndex of cellIndices) {
@@ -4813,10 +5026,7 @@ async function handleRunOCR() {
                 }
 
                 processedCells += 1;
-                showLoading(t('ocr.runningCell', {
-                    page: pageIndex + 1,
-                    cell: cellIndex + 1
-                }));
+                setOcrActiveCell(pageIndex, cellIndex);
 
                 const cellCanvas = extractCellCanvasFromRenderedSheet(
                     renderedSheet,
@@ -4842,6 +5052,7 @@ async function handleRunOCR() {
                 };
 
                 recognizedLines += items.length;
+                appendOcrFlashItems(pageIndex, cellIndex, items);
             }
         }
 
@@ -4852,6 +5063,7 @@ async function handleRunOCR() {
             backend: backendLabel,
             summary: ocrState.lastSummary
         });
+        completedSuccessfully = true;
         showStatusToast(getOcrCompletionMessage(recognizedLines), 3200);
     } catch (error) {
         console.error('OCR failed:', error);
@@ -4860,10 +5072,19 @@ async function handleRunOCR() {
         alert(t('ocr.failed'));
     } finally {
         appState.currentPageIndex = originalPageIndex;
+        ocrState.activeCell = null;
+
+        if (!completedSuccessfully || recognizedLines === 0) {
+            clearOcrVisualState({ render: false });
+        }
+
         renderCurrentPage();
-        hideLoading();
         ocrState.busy = false;
         updateOcrButtonState();
+
+        if (completedSuccessfully && recognizedLines > 0) {
+            scheduleOcrFlashClear();
+        }
 
         if (!processedCells && ocrState.status !== 'error') {
             showStatusToast(t('ocr.noExportableCells'));
