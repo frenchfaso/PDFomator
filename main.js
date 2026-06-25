@@ -1055,11 +1055,11 @@ const CONFIG = {
     // Local OCR experiment
     ocr: {
         moduleUrl: './vendor/paddleocr/paddleocr-browser.mjs',
-        wasmPaths: '/vendor/paddleocr/',
+        wasmPaths: resolveAppAssetUrl('./vendor/paddleocr/'),
         textDetectionModelName: 'PP-OCRv6_small_det',
-        textDetectionModelUrl: '/vendor/paddleocr/models/PP-OCRv6_small_det_onnx_infer.tar',
+        textDetectionModelUrl: resolveAppAssetUrl('./vendor/paddleocr/models/PP-OCRv6_small_det_onnx_infer.tar'),
         textRecognitionModelName: 'PP-OCRv6_small_rec',
-        textRecognitionModelUrl: '/vendor/paddleocr/models/PP-OCRv6_small_rec_onnx_infer.tar',
+        textRecognitionModelUrl: resolveAppAssetUrl('./vendor/paddleocr/models/PP-OCRv6_small_rec_onnx_infer.tar'),
         rasterScale: 3,
         minConfidence: 0.35,
         textRecognitionBatchSize: 4
@@ -1085,6 +1085,10 @@ const CELL_FILTERS = [
     { key: 'bitonal', label: '1', name: '1-bit' }
 ];
 const DEFAULT_BITONAL_THRESHOLD = 58;
+
+function resolveAppAssetUrl(path) {
+    return new URL(path, window.location.href).href;
+}
 
 // Overlay management utilities
 const overlayManager = {
