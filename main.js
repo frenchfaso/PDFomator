@@ -1064,6 +1064,7 @@ const CONFIG = {
         minConfidence: 0.35,
         textRecognitionBatchSize: 4,
         scanSweepDurationMs: 1400,
+        minScanFeedbackMs: 250,
         flashDurationMs: 2200
     }
 };
@@ -3769,6 +3770,26 @@ function setOcrActiveCell(pageIndex, cellIndex) {
     }
 }
 
+function waitForNextPaint() {
+    if (document.visibilityState === 'hidden') {
+        return Promise.resolve();
+    }
+
+    return new Promise(resolve => requestAnimationFrame(() => resolve()));
+}
+
+function waitForDuration(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function waitForOcrScanFeedback() {
+    await waitForNextPaint();
+
+    if (CONFIG.ocr.minScanFeedbackMs > 0) {
+        await waitForDuration(CONFIG.ocr.minScanFeedbackMs);
+    }
+}
+
 function isCurrentOcrActiveCell(cellIndex) {
     return ocrState.busy
         && ocrState.activeCell?.pageIndex === appState.currentPageIndex
@@ -5027,6 +5048,7 @@ async function handleRunOCR() {
 
                 processedCells += 1;
                 setOcrActiveCell(pageIndex, cellIndex);
+                await waitForOcrScanFeedback();
 
                 const cellCanvas = extractCellCanvasFromRenderedSheet(
                     renderedSheet,
