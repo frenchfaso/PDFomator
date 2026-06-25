@@ -9,7 +9,7 @@ const I18N_RESOURCES = {
     en: {
         translation: {
             app: {
-                description: 'Minimal Mobile PWA to Pack PDF Pages on a Sheet'
+                description: 'Mobile-first PWA for arranging PDF pages and images into printable sheets with local OCR text export'
             },
             common: {
                 cancel: 'Cancel'
@@ -134,7 +134,7 @@ const I18N_RESOURCES = {
     it: {
         translation: {
             app: {
-                description: 'PWA mobile minimale per impaginare pagine PDF su un foglio'
+                description: 'PWA mobile per impaginare pagine PDF e immagini su fogli stampabili con OCR locale'
             },
             common: {
                 cancel: 'Annulla'
@@ -259,7 +259,7 @@ const I18N_RESOURCES = {
     de: {
         translation: {
             app: {
-                description: 'Minimale mobile PWA zum Anordnen von PDF-Seiten auf einem Blatt'
+                description: 'Mobile-first PWA zum Anordnen von PDF-Seiten und Bildern auf druckbaren Blättern mit lokaler OCR'
             },
             common: {
                 cancel: 'Abbrechen'
@@ -384,7 +384,7 @@ const I18N_RESOURCES = {
     es: {
         translation: {
             app: {
-                description: 'PWA móvil mínima para colocar páginas PDF en una hoja'
+                description: 'PWA móvil para colocar páginas PDF e imágenes en hojas imprimibles con OCR local'
             },
             common: {
                 cancel: 'Cancelar'
@@ -509,7 +509,7 @@ const I18N_RESOURCES = {
     fr: {
         translation: {
             app: {
-                description: 'PWA mobile minimale pour placer des pages PDF sur une feuille'
+                description: 'PWA mobile pour placer des pages PDF et images sur des feuilles imprimables avec OCR local'
             },
             common: {
                 cancel: 'Annuler'
@@ -1052,7 +1052,7 @@ const CONFIG = {
         maxRasterDimension: 2800    // Downscale oversized photos for faster filtering/export
     },
 
-    // Local OCR experiment
+    // Local OCR
     ocr: {
         moduleUrl: './vendor/paddleocr/paddleocr-browser.mjs',
         wasmPaths: resolveAppAssetUrl('./vendor/paddleocr/'),
@@ -5163,7 +5163,12 @@ async function handleQualityExport(quality) {
 async function assemblePDF(quality) {
     const { scale, jpegQuality } = EXPORT_QUALITY[quality];
     const originalPageIndex = appState.currentPageIndex;
+    const JsPDF = window.jspdf?.jsPDF;
     let pdf = null;
+
+    if (!JsPDF) {
+        throw new Error('jsPDF library not loaded');
+    }
 
     try {
         for (let pageIndex = 0; pageIndex < appState.pages.length; pageIndex++) {
@@ -5172,7 +5177,7 @@ async function assemblePDF(quality) {
 
             const { width, height, orientation } = layoutState.sheet;
             if (!pdf) {
-                pdf = new jsPDF({
+                pdf = new JsPDF({
                     orientation: orientation === 'landscape' ? 'l' : 'p',
                     unit: 'mm',
                     format: [width, height]

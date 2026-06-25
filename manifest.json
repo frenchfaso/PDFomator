@@ -1,8 +1,10 @@
 {
   "name": "PDFomator",
   "short_name": "PDFomator",
-  "description": "Minimal Mobile PWA to Pack PDF Pages on a Sheet",
+  "description": "Mobile-first PWA for arranging PDF pages and images into printable sheets with local OCR text export",
+  "id": "./",
   "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#dc2626",

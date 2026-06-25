@@ -4,16 +4,16 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' blob: data:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'none';">
     <title>PDFomator</title>
-    <meta name="description" content="Minimal Mobile PWA to Pack PDF Pages on a Sheet" data-i18n-attr="content:app.description">
+    <meta name="description" content="Mobile-first PWA for arranging PDF pages and images into printable sheets with local OCR text export" data-i18n-attr="content:app.description">
     
     <!-- PWA -->
     <link rel="manifest" href="manifest.json">
     <link rel="icon" href="pdfomator-icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="pdfomator-icon.svg">
     <meta name="theme-color" content="#dc2626">
-        <meta name="mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
     <!-- Pico CSS Red Theme -->
@@ -198,10 +198,6 @@
     
     <!-- Scripts -->
     <script src="./vendor/jspdf.umd.min.js"></script>
-    <script>
-        // jsPDF initialization (from official examples)
-        window.jsPDF = window.jspdf.jsPDF;
-    </script>
     <script src="./vendor/i18next/i18next.min.js"></script>
     <script type="module" src="main.js"></script>
 </body>
