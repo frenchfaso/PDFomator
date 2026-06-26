@@ -1,10 +1,9 @@
 // PDFomator - Main Application Logic
 // ES Module with vanilla JavaScript for PDF page layout
 
-import * as pdfjsLib from './vendor/pdf.mjs';
-
 const SUPPORTED_LANGUAGES = ['en', 'it', 'de', 'es', 'fr'];
 const FALLBACK_LANGUAGE = 'en';
+const APP_VERSION = typeof __PDFOMATOR_VERSION__ === 'string' ? __PDFOMATOR_VERSION__ : 'dev';
 const I18N_RESOURCES = {
     en: {
         translation: {
@@ -994,7 +993,8 @@ const CONFIG = {
         A3: { width: 297, height: 420 }
     },
     maxGridSize: 5,
-    pdfWorkerUrl: './vendor/pdf.worker.mjs',
+    pdfModuleUrl: resolveAppAssetUrl('./vendor/pdf.mjs'),
+    pdfWorkerUrl: resolveAppAssetUrl('./vendor/pdf.worker.mjs'),
     
     // Grid spacing constants (in mm)
     gridSpacing: {
@@ -1054,7 +1054,7 @@ const CONFIG = {
 
     // Local OCR
     ocr: {
-        moduleUrl: './vendor/paddleocr/paddleocr-browser.mjs',
+        moduleUrl: resolveAppAssetUrl('./vendor/paddleocr/paddleocr-browser.mjs'),
         wasmPaths: resolveAppAssetUrl('./vendor/paddleocr/'),
         textDetectionModelName: 'PP-OCRv6_small_det',
         textDetectionModelUrl: resolveAppAssetUrl('./vendor/paddleocr/models/PP-OCRv6_small_det_onnx_infer.tar'),
@@ -1184,7 +1184,8 @@ const overlayManager = {
 let elements = {};
 let currentTargetCell = null; // Track which cell is being filled
 let pageSelectorSession = null;
-let lastKnownCacheVersion = '';
+let lastKnownAppVersion = APP_VERSION;
+let pdfjsLib = null;
 let statusToastTimeoutId = null;
 let activeStatusToast = null;
 const filterEngineState = {
@@ -1484,6 +1485,7 @@ async function init() {
 
     await setupI18n();
     applyDomTranslations();
+    updateVersionDisplay(APP_VERSION);
     
     // Register Service Worker for PWA functionality
     registerServiceWorker();
@@ -1503,6 +1505,11 @@ async function init() {
 
 function registerServiceWorker() {
     if ('serviceWorker' in navigator) {
+        if (import.meta.env?.DEV) {
+            console.log('[App] Service Worker registration skipped in Vite dev mode');
+            return;
+        }
+
         let hasReloadedForServiceWorker = false;
         let shouldReloadForLocalServiceWorkerUpdate = false;
         const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
@@ -1515,9 +1522,6 @@ function registerServiceWorker() {
                 }
 
                 console.log('[App] Service Worker registered successfully:', registration.scope);
-                
-                // Get and display version from service worker
-                getServiceWorkerVersion(registration);
 
                 // If an update is already waiting, offer it once.
                 if (registration.waiting && isLocalhost) {
@@ -1578,7 +1582,7 @@ function registerServiceWorker() {
                     return;
                 }
 
-                getServiceWorkerVersion();
+                updateVersionDisplay(APP_VERSION);
                 return;
             }
 
@@ -1648,74 +1652,22 @@ function showUpdateNotification(registration) {
     console.log('[App] Update notification shown');
 }
 
-async function getServiceWorkerVersion(registration = null) {
-    console.log('[App] Attempting to get version from service worker');
-    
-    if (!('serviceWorker' in navigator)) {
-        console.log('[App] Service Worker not supported');
-        return;
-    }
-
-    try {
-        const readyRegistration = await navigator.serviceWorker.ready;
-        const resolvedRegistration = registration || readyRegistration;
-        const serviceWorker = navigator.serviceWorker.controller
-            || readyRegistration?.active
-            || resolvedRegistration?.active
-            || resolvedRegistration?.waiting
-            || resolvedRegistration?.installing;
-
-        if (!serviceWorker) {
-            console.warn('[App] No service worker available for version lookup');
-            return;
-        }
-
-        const messageChannel = new MessageChannel();
-        
-        // Promise to handle the response with timeout
-        const versionPromise = new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                reject(new Error('Timeout waiting for version response'));
-            }, 3000);
-            
-            messageChannel.port1.onmessage = (event) => {
-                clearTimeout(timeout);
-                resolve(event.data.version);
-            };
-        });
-        
-        // Send message to service worker
-        serviceWorker.postMessage(
-            { type: 'GET_VERSION' },
-            [messageChannel.port2]
-        );
-        
-        const version = await versionPromise;
-        lastKnownCacheVersion = version;
-        console.log('[App] Received version from service worker:', version);
-        updateVersionDisplay(version);
-    } catch (error) {
-        console.warn('[App] Failed to get version from service worker:', error);
-    }
-}
-
-function updateVersionDisplay(cacheVersion) {
+function updateVersionDisplay(appVersion) {
     const versionElement = document.getElementById('version');
-    if (versionElement && cacheVersion) {
-        // Extract version from cache name (e.g., 'pdfomator-v1.0.2' -> 'v1.0.2')
-        lastKnownCacheVersion = cacheVersion;
-        const version = cacheVersion.split('-').pop();
+    if (versionElement && appVersion) {
+        lastKnownAppVersion = appVersion;
+        const normalizedVersion = String(appVersion).startsWith('v') ? String(appVersion) : `v${appVersion}`;
         const engineSuffix = filterEngineState.mode === 'gpu' ? 'g' : filterEngineState.mode === 'cpu' ? 'c' : '';
-        versionElement.textContent = `${version}${engineSuffix}`;
-        console.log('[App] Version displayed:', version);
+        versionElement.textContent = `${normalizedVersion}${engineSuffix}`;
+        console.log('[App] Version displayed:', normalizedVersion);
     } else {
-        console.log('[App] Version element not found or no cache version provided');
+        console.log('[App] Version element not found or no app version provided');
     }
 }
 
 function refreshVersionDisplay() {
-    if (lastKnownCacheVersion) {
-        updateVersionDisplay(lastKnownCacheVersion);
+    if (lastKnownAppVersion) {
+        updateVersionDisplay(lastKnownAppVersion);
     }
 }
 
@@ -1778,6 +1730,8 @@ function showError(message) {
 
 async function setupPDFWorker() {
     try {
+        pdfjsLib = await import(/* @vite-ignore */ CONFIG.pdfModuleUrl);
+
         if (!pdfjsLib?.getDocument || !pdfjsLib?.GlobalWorkerOptions) {
             throw new Error('PDF.js failed to load completely');
         }

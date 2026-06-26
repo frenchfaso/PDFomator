@@ -21,7 +21,13 @@ PDFomator runs in your browser. PDF handling, image processing, OCR, and export 
 ## Run Locally
 
 ```sh
-python3 -m http.server 8080
+npm install
+npm run dev
 ```
 
-Then open `http://localhost:8080/`.
+For a production-style PWA check:
+
+```sh
+npm run build
+npm run preview
+```
